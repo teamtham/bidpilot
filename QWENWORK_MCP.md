@@ -30,3 +30,16 @@ QWENWORK_PROJECT_ROOT=/Users/teamtham/hackathon
 - `write_handoff` — appends an update to `QWENWORK_HANDOFF.md` for a later review.
 
 The bridge intentionally does **not** expose arbitrary shell execution, files outside the project, or any credentials.
+
+## BidPilot product tools
+
+Import [qwenwork-bidpilot-mcp.json](qwenwork-bidpilot-mcp.json) as a second stdio connector and enable **bidpilot**. The configuration uses `/usr/bin/env python3` and shares the SQLite database with the founder dashboard. If the checkout is in a different directory or the dashboard uses `--db`, update the script path and `BIDPILOT_MCP_DB` to match.
+
+| Skill or step | Tools |
+| --- | --- |
+| Intake | `list_pending_work`, `claim_intake`, `submit_change_offer`, `save_agent_output` |
+| Scoping | `get_deal`, `get_scoping_history`, `save_agent_output` |
+| Engine and run | `evaluate_offer`, `record_step`, `check_draft`, `run_trace` |
+| Negotiator | `negotiation_payload`, `save_draft`, `save_agent_output` |
+
+Use synthetic sample records and stable request IDs for retries. Keep scoping history and run traces private. The negotiator receives public options through `negotiation_payload`. Release and booking confirmation stay in the founder dashboard, and client acceptance stays on the token-holder page.
