@@ -1,0 +1,143 @@
+# BidPilot
+
+BidPilot is an AI sales desk for one-person service businesses. QwenWork agents turn website
+inquiries into safe, founder-approved proposals that a deterministic Commitment Engine checks
+against real capacity, cost floors and private data — so the business only promises what it can
+actually deliver.
+
+This is a hackathon entry for **QwenWork x Hashmeta AI OPC**, shown with a sample video producer
+("Alex Studio") and synthetic data only. Every figure comes from the engine's pinned sample cases
+and is verified by the test suite.
+
+## How a deal flows
+
+```mermaid
+flowchart TD
+    form["Hashmeta quote form<br/>client submits the brief"]
+
+    subgraph QW["QwenWork — agents and orchestration"]
+        direction TB
+        task["Scheduled task<br/>polls for new leads"]
+        intake["Intake + scoping Skills<br/>structure the offer, pick comparables"]
+        neg["Negotiator Skill<br/>writes the client message"]
+        case["Case-study drafter<br/>anonymised post back to the site"]
+    end
+
+    subgraph PY["BidPilot Python — deterministic, no AI maths"]
+        direction TB
+        engine["Commitment Engine<br/>planning hours vs capacity, budget vs floor"]
+        gate["Outbound gate<br/>blocks private or unsafe drafts"]
+        approve["Founder approval<br/>dashboard, exact version"]
+        client["Client page<br/>private link, public terms only"]
+        book["Booking confirmation"]
+    end
+
+    form --> task --> intake --> engine --> neg --> gate --> approve --> client --> book --> case
+    client -. "change request → fresh run" .-> intake
+```
+
+A client fills in the quote form on the founder's Hashmeta site. A QwenWork scheduled task picks up
+the lead, and the intake and scoping Skills turn the free-text brief into a structured offer with
+comparable past jobs. The **Commitment Engine** (plain Python) plans the hours, checks them against
+the founder's real calendar capacity, and compares the budget with the list price and a cost floor,
+returning `accept`, `counter`, `clarify` or `decline` plus safe alternative options. The negotiator
+Skill writes the client message using only those public options. The **outbound gate** blocks any
+draft that leaks private numbers, unapproved terms or other clients' names. Nothing reaches the
+client until the founder approves that exact version. The client sees only the approved options on a
+private link, can request changes (which start a fresh run), and can pick an option for the founder
+to confirm. After booking, QwenWork drafts an anonymised case study back on the Hashmeta site.
+
+## QwenWork vs Python
+
+QwenWork is the product's engine; the Python code is a set of plain, deterministic tools it calls
+over MCP. Agent reasoning never lives in Python, and no model does arithmetic.
+
+| QwenWork (agents & orchestration) | BidPilot Python (deterministic tools over MCP) |
+| --- | --- |
+| Scheduled inquiry poller | `mcp_server.py` — the scoped MCP tool surface |
+| `bidpilot-intake` — extract the brief, structure the offer | `engine` — pricing/evaluation: hours, capacity, floor, verdict, options |
+| `bidpilot-scoping` — choose comparable past jobs | Outbound gate — blocks private/unsafe draft text |
+| `bidpilot-negotiator` — write the client message from public options | `server.py` — founder dashboard + client proposal pages |
+| `bidpilot-run` / `bidpilot-runtime` — orchestrate a deal end to end | `core.py`, `db.py`, `capacity.py` — deal state, storage, capacity model |
+| Hashmeta AI website and the anonymised case study | The per-deal **agent timeline** (built from `run_steps` + `agent_outputs`) |
+
+The MCP tool surface each Skill uses is documented in [`QWENWORK_MCP.md`](QWENWORK_MCP.md) and
+[`bidpilot-build-guide/bidpilot-runtime/SKILL.md`](bidpilot-build-guide/bidpilot-runtime/SKILL.md).
+
+## Screenshots
+
+The founder dashboard, quote form and client page share one calm design system, and each deal has a
+private founder-only timeline of every agent step.
+
+| Founder dashboard — deal card with the per-deal agent timeline (blocked stages in red) | Public quote form |
+| --- | --- |
+| ![Founder dashboard with deal timeline](docs/images/founder-dashboard.png) | ![Quote form](docs/images/quote-form.png) |
+
+| Full deal timeline: intake → scoping → engine → draft → outbound check → review → client response → booking | Client proposal page (public terms only) |
+| --- | --- |
+| ![Deal timeline](docs/images/deal-timeline.png) | ![Client proposal page](docs/images/client-page.png) |
+
+The timeline shows each step's skill/agent name, status, time, trigger (manual vs scheduled) and a
+short private note. It is founder-only — client pages never expose it, private hours, the cost
+floor, capacity or other clients.
+
+## Run it
+
+See [`docs/RUNNING.md`](docs/RUNNING.md) for full setup (Python 3.11+, the MCP connectors, and how
+to reset the sample data). Quick start:
+
+```sh
+python3 -B BidPilot/server.py
+```
+
+Open the owner URL printed in the terminal (keep it private — it holds the per-launch session
+token). The sample intake form is at `http://127.0.0.1:8765/quote`.
+
+## Tests
+
+```sh
+# main suite — 111 tests
+(cd BidPilot && python3 -B -m unittest discover -p 'test_*.py')
+# Commitment Engine unit tests — 6 tests
+(cd BidPilot/bidpilot-engine && python3 -B -m unittest -v test_engine.py)
+# full demo-flow replay over HTTP + MCP
+python3 -B BidPilot/scripts/demo_smoke.py
+```
+
+## Deployment
+
+BidPilot ships as a **loopback-only demo** on synthetic sample data: `server.py` is a Python
+standard-library HTTP server bound to `127.0.0.1`, the owner session token is generated per launch
+and printed to the console (never logged or written to disk), and state lives in a local SQLite
+file. That is deliberate for the hackathon — it is not production-hardened.
+
+To run it for real:
+
+- **Serve the app** behind a reverse proxy (nginx or Caddy) terminating TLS, as a `systemd` service
+  or container, instead of the bare loopback server.
+- **Authenticate properly.** Replace the per-launch owner token with real auth (OIDC/session) and
+  role checks; the founder dashboard, client token pages and MCP tool surface each need their own
+  authorization boundary.
+- **Persist and back up state.** Move off the local SQLite file to a backed-up volume or a managed
+  database, and keep `*.db` and `server.log` out of the repo (see `.gitignore`).
+- **Run the agents in QwenWork.** The intake/scoping/negotiator/run Skills execute as QwenWork
+  scheduled tasks in the workspace and reach BidPilot through the MCP bridge; point
+  `BIDPILOT_MCP_DB` at the same database the server uses.
+- **Host the website separately.** The client-facing quote form and case studies live on the
+  Hashmeta site, which talks to BidPilot through the same scoped tools.
+- **Keep the engine deterministic and tested.** Pricing, capacity and the outbound gate stay in
+  plain Python under CI so no model performs arithmetic or releases unsafe text.
+
+## Layout
+
+- `BidPilot/` — the working Python app (engine, `core.py`, `db.py`, `capacity.py`, `server.py`,
+  `mcp_server.py`, and the `test_*.py` suites).
+- `bidpilot-build-guide/` — the build guide, the QwenWork build prompt, and the agent Skills. Its
+  `bidpilot-engine/` intentionally mirrors `BidPilot/bidpilot-engine/`; keep both in sync.
+- `docs/` — [`RUNNING.md`](docs/RUNNING.md), [`SUBMISSION.md`](docs/SUBMISSION.md) and this
+  README's images.
+- `tools/`, `qwenwork-mcp.json`, `qwenwork-bidpilot-mcp.json`, [`QWENWORK_MCP.md`](QWENWORK_MCP.md)
+  — the local MCP bridge that connects QwenWork to this project.
+
+See [`AGENTS.md`](AGENTS.md) for the contributor guide and [`docs/SUBMISSION.md`](docs/SUBMISSION.md)
+for the hackathon submission.

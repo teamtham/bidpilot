@@ -24,7 +24,7 @@ All data shown is sample data.
 
 ## How it was built
 
-QwenWork is the product's engine. It runs the intake, scoping, negotiator and run agents as QwenWork Skills, the scheduled inquiry poller, the Hashmeta AI website and case study, and generated the demo video. The supporting Python code, written with AI coding assistants (Claude and Codex), is a set of plain tools QwenWork calls over MCP: the deterministic Commitment Engine, the founder dashboard and client page, and the database. It is covered by 100 automated tests and a replay of the full demo flow.
+QwenWork is the product's engine. It runs the intake, scoping, negotiator and run agents as QwenWork Skills, the scheduled inquiry poller, the Hashmeta AI website and case study, and generated the demo video. The supporting Python code is a set of plain tools QwenWork calls over MCP: the deterministic Commitment Engine, the founder dashboard and client page, and the database. The original engine, server and MCP code were written with AI coding assistants (Claude and Codex); the later work was written by QwenWork itself — the shared restyle of the founder dashboard, quote form and client pages, the per-deal founder **agent timeline** (built from the run steps and agent outputs, showing each step's skill, status, time, private note and an optional manual/scheduled trigger, with blocked drafts in red), and the project README. The Python is covered by 117 automated tests (111 in the main suite plus 6 Commitment Engine unit tests) and a replay of the full demo flow.
 
 ## Demo video script (≤ 3:00)
 
