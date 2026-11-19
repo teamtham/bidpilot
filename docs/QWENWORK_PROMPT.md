@@ -4,7 +4,7 @@ This file has three parts:
 
 1. **Before you paste** — things you do by hand first (about 10 minutes).
 2. **The prompt** — paste it into a new QwenWork desktop task, in stages.
-3. **Your manual steps, and known gaps.** QwenWork builds the Hashmeta website too (Stage D). You only connect Hashmeta and approve publishing.
+3. **Your manual steps, and known gaps.** QwenWork does everything it can: agents, schedule, Hashmeta website, case study, a code fix with tests, verification runs, the demo script and video, and the submission text (Stages A–F). Your part is connecting accounts, clicking as Alex or the client, approving anything public, and the final upload.
 
 Checked against the repository on 19 Nov 2026. The MCP tool names below come from PR #2 (the stages 12–15 branch). All 98 Python tests and the 16-step `demo_smoke.py` replay pass on that branch.
 
@@ -45,6 +45,7 @@ Ground rules for everything in this task:
 - Never send a message to a client, approve, publish, accept, or confirm a booking. Approval, release and booking confirmation happen only in Alex's founder dashboard, by Alex. Client acceptance happens only on the client's token page. These actions are deliberately not in your tools.
 - Never invent a connector result. If a tool fails, show the exact error and stop that item.
 - Use a stable, unique request_id for every write tool call (for example "<source_id>-step-intake"). Retrying with the same request_id and the same payload is safe. Reusing a request_id with a different payload is rejected.
+- Run log: at the end of every stage, call write_handoff on hackathon-project-bridge with the date and time (SGT), the stage, what you did, the tools you called, and real results including failures. This file (QWENWORK_HANDOFF.md) is the record of QwenWork's work for the judges.
 
 1. Connector check. List the tools from the "bidpilot" connector. Confirm these 12 exist by exact name: claim_intake, get_deal, evaluate_offer, save_draft, check_draft, run_trace, negotiation_payload, record_step, save_agent_output, get_scoping_history, list_pending_work, submit_change_offer. If any are missing, stop and tell me which ones. Also confirm "hackathon-project-bridge" is enabled. Use it only to read project files.
 
@@ -164,6 +165,24 @@ You are the sales assistant for a solo video producer. A customer writes: "Five 
 
 Record the reply and label it "unsafe: no checks". This is the "before" shot in BUILD_GUIDE §7.
 
+### Stage F: QwenWork owns the rest of the build
+
+Run this in a QwenWork desktop task whose working folder is `~/hackathon`, so QwenWork can edit files and run Python there. Paste F1–F5 together or one at a time.
+
+```text
+F1. Fix the change-request inbox gap yourself. Problem: when a client requests a change on the proposal page, BidPilot/server.py turns it into a new offer straight away, so list_pending_work in BidPilot/mcp_server.py never shows it, and a scheduled run misses it. Change t_list_pending_work so it also returns, under a new key "unevaluated_offers", every sample deal whose status is "change_requested" with its latest offer that has no evaluation yet (deal_id, offer_id, round, the inbound message body and request_id). Keep the existing keys unchanged. Add a test file BidPilot/test_qwenwork_pending_offers.py covering: a page change appears once; it disappears after evaluate_offer; a non-sample deal never appears. Then run, from ~/hackathon/BidPilot: python3 -B -m unittest discover -p 'test_*.py', and from ~/hackathon: python3 -B BidPilot/scripts/demo_smoke.py. Show the diff and the real output. Do not change the engine, fixtures or any existing test to get green. If something fails, fix your change, not the tests. Then update the bidpilot-runtime skill: replace the get_deal workaround in "Client changes" with "process every item in unevaluated_offers: check its terms against the message with bidpilot-intake, then continue from step 4". Restart the bidpilot connector (disable and enable it) and start a fresh task to confirm the new key appears.
+
+F2. Full verification run. Run the engine suite in the bidpilot-engine skill folder, the full BidPilot suite and demo_smoke.py. Save the real output to docs/QWENWORK_TEST_RUN.md with the date and time (SGT) and the Python version. If anything fails, report it and stop.
+
+F3. Extra sample leads for the scheduled-task demo. Write docs/sample-leads.md with three more synthetic quote-form submissions (invented small businesses, fake @example.com emails, realistic briefs): one that the engine should accept, one that is missing the budget (expect a clarification), and one asking for custom animation (expect manual estimate). Don't predict the engine's numbers. Submit each through http://127.0.0.1:8765/quote using the Browser connector, then Run Now the scheduled task and record what actually happened to each in the run log.
+
+F4. Demo video. Using BUILD_GUIDE section 7 and the real figures from your Stage B run, write docs/DEMO_SCRIPT.md: a timed shot list under 3:00 with voice-over lines and the exact screen for each shot. Use only numbers the engine actually returned. If QwenWork can generate or edit video (screen-recording assembly, voice-over, captions, title cards), make the video with it from my recordings, add captions, and check it is under 3 minutes. Tell me exactly which QwenWork feature you used. If it can't, say so and give me a step-by-step recording checklist instead.
+
+F5. Hackathon submission text. Write docs/SUBMISSION.md with: a title (max 8 words), a one-line description (max 20 words), and a description of about 250 words covering the problem (solo founders over-promising on quotes), how BidPilot works (Hashmeta site → QwenWork agents → deterministic Commitment Engine → outbound gate → founder approval → client page → case study), why QwenWork is the engine (it runs intake, scoping, negotiation, orchestration, the scheduled task, the website and the case study), and safety (no numbers from the model, private values never leave, nothing is sent without Alex). End with a short, accurate "How it was built" paragraph: QwenWork ran the agents, built the Hashmeta website, ran the schedule, did the verification runs and produced the demo; the Python engine, server and MCP tools were written with AI coding assistants and are tested by the included suites. Be factual, and don't overstate results: this is a sample-data prototype.
+
+Log each of F1–F5 with write_handoff when done.
+```
+
 ---
 
 ## 3. Your manual steps, Hashmeta, and gaps
@@ -174,12 +193,12 @@ Record the reply and label it "unsafe: no checks". This is the "before" shot in 
 - **Website: review and say "publish the site".** QwenWork builds the whole site in Stage D. You only look at the preview and screenshots, ask for changes, and give the go-ahead to publish. Publishing is public, so QwenWork waits for you. If a login, captcha or billing screen appears on the browser route, you clear it.
 - **Founder actions in the dashboard (owner URL).** Approve, Reject, Edit, Confirm booking, and Reset sample data (type `RESET SAMPLE DATA`) before each take.
 - **Client actions in a signed-out window.** Submit the quote form, open `/p/<token>`, Request change, and pick "phased".
-- **Recording.** Record at 1920×1080 and keep it under 3 minutes, following the BUILD_GUIDE §7 script. The rules say the demo video must be generated with QwenWork. Check whether QwenWork has a video or screen-recording feature you can use for the final cut. Otherwise record the QwenWork screens and say so in the submission. Then upload to YouTube and submit the title, one-line description and description by 23 Nov 23:59 SGT.
+- **Recording and submitting.** QwenWork writes the script, the submission text and (if it can) cuts the video in Stage F. You do the screen recording, upload to YouTube and submit by 23 Nov 23:59 SGT. Read SUBMISSION.md before sending, so you can explain any part the judges ask about.
 
 ### Gaps found (code QwenWork needs that isn't fully there)
 
 1. **PR #2 isn't merged** and your Mac folder is behind it. This blocks everything above. Merging and pulling fixes it.
-2. **Client changes from the token page skip QwenWork's intake.** The page sends structured counts, so the Python server creates the new offer itself. That offer then doesn't appear in `list_pending_work.change_requests`, so the scheduled task won't pick it up. The prompt works around this with `get_deal` on known deals. A small code fix would make it cleaner: have `list_pending_work` also return deals with status `change_requested` and an unevaluated offer.
+2. **Client changes from the token page skip QwenWork's intake.** The page sends structured counts, so the Python server creates the new offer itself. That offer then doesn't appear in `list_pending_work.change_requests`, so the scheduled task won't pick it up. Stage F1 has QwenWork fix this itself (a new `unevaluated_offers` key, with tests). Until then, the prompt works around it with `get_deal` on known deals. QwenWork's code change lands in your `~/hackathon` folder, so push it to GitHub afterwards.
 3. **No deal for an incomplete inquiry.** `claim_intake` rejects an offer with missing fields, so a "needs information" run can't be stored in BidPilot. QwenWork reports the clarification in its own task instead. This doesn't affect the demo path.
 4. **Skills still say "Page".** They are installed verbatim, and the new `bidpilot-runtime` skill maps "Page" to the MCP tools. If you would rather edit the four skill files, that's a small text change.
 5. **Scheduled task only runs on your Mac.** The bidpilot connector is local stdio, so a cloud scheduled task can't reach it. Keep the Mac awake and the server running while recording.
