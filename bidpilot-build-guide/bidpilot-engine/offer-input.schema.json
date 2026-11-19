@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "as_of": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "offer": {
+      "type": "object",
+      "properties": {
+        "client": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "product_promo",
+            "social_reel",
+            "testimonial",
+            "event_recap",
+            "explainer"
+          ]
+        },
+        "production_mode": {
+          "type": "string",
+          "enum": [
+            "edit_only",
+            "one_shoot_day",
+            "multi_day"
+          ]
+        },
+        "shoot_days": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "locations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "interviewees": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "scripting": {
+          "type": "string",
+          "enum": [
+            "none",
+            "light",
+            "full"
+          ]
+        },
+        "deliverables": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "editing_level": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "heavy"
+          ]
+        },
+        "graphics": {
+          "type": "string",
+          "enum": [
+            "none",
+            "basic_titles",
+            "light_motion",
+            "custom_animation"
+          ]
+        },
+        "revision_rounds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "caption_versions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "budget_sgd": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10000000,
+          "multipleOf": 0.01
+        },
+        "direct_costs_sgd": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10000000,
+          "multipleOf": 0.01
+        }
+      },
+      "required": [
+        "client",
+        "format",
+        "production_mode",
+        "shoot_days",
+        "locations",
+        "interviewees",
+        "scripting",
+        "deliverables",
+        "editing_level",
+        "graphics",
+        "revision_rounds",
+        "caption_versions",
+        "deadline",
+        "budget_sgd",
+        "direct_costs_sgd"
+      ],
+      "additionalProperties": true
+    },
+    "comparable_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "as_of",
+    "offer",
+    "comparable_ids"
+  ],
+  "additionalProperties": true
+}

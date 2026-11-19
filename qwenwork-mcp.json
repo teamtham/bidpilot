@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "hackathon-project-bridge": {
+      "type": "stdio",
+      "command": "/usr/bin/env",
+      "args": [
+        "node",
+        "/Users/teamtham/hackathon/tools/qwenwork-mcp-bridge.js"
+      ],
+      "env": {
+        "QWENWORK_PROJECT_ROOT": "/Users/teamtham/hackathon"
+      }
+    }
+  }
+}

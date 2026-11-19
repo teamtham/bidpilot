@@ -1,0 +1,80 @@
+[
+  {
+    "name": "inquiry_1",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":3,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":3,"deadline":"2026-12-11","budget_sgd":2700,"direct_costs_sgd":0}},
+    "expected": {"verdict":"accept","reason_codes":[],"missing_fields":[],"invalid_fields":[],"comparables":{"used":[{"project_id":"P-031","unit_hours":6.5},{"project_id":"P-036","unit_hours":7},{"project_id":"P-041","unit_hours":7},{"project_id":"P-044","unit_hours":7.5}],"excluded":[]},"estimate":{"fixed_hours":8,"unit_hours":7,"editing_hours":21,"addon_hours":{"captions":1.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":30.5,"buffer_pct":15,"planning_hours":35.07,"capacity_hours":50.4,"list_sgd":2700,"floor_sgd":2454.9,"effective_rate_sgd":76.99},"options":[{"option_id":"as_offered","kind":"as_offered","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2700,"phases":[]}],"option_metrics":{}}
+  },
+  {
+    "name": "counteroffer",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":5,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":5,"deadline":"2026-12-04","budget_sgd":2700,"direct_costs_sgd":0}},
+    "expected": {"verdict":"counter","reason_codes":["CAPACITY_SHORTFALL","BELOW_FLOOR"],"missing_fields":[],"invalid_fields":[],"comparables":{"used":[{"project_id":"P-031","unit_hours":6.5},{"project_id":"P-036","unit_hours":7},{"project_id":"P-041","unit_hours":7},{"project_id":"P-044","unit_hours":7.5}],"excluded":[]},"estimate":{"fixed_hours":8,"unit_hours":7,"editing_hours":35,"addon_hours":{"captions":2.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":45.5,"buffer_pct":15,"planning_hours":52.32,"capacity_hours":28.8,"list_sgd":4000,"floor_sgd":3662.4,"effective_rate_sgd":51.61},"options":[{"option_id":"hold_date","kind":"hold_date","deliverables":2,"caption_versions":2,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-04","price_sgd":2050,"phases":[]},{"option_id":"hold_budget","kind":"hold_budget","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2700,"phases":[]},{"option_id":"hold_scope","kind":"hold_scope","deliverables":5,"caption_versions":5,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-18","price_sgd":4000,"phases":[]},{"option_id":"phased","kind":"phased","deliverables":5,"caption_versions":5,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-18","price_sgd":4000,"phases":[{"deliverables":2,"deadline":"2026-12-04"},{"deliverables":3,"deadline":"2026-12-18"}]}],"option_metrics":{"hold_date":{"fixed_hours":8,"unit_hours":7,"editing_hours":14,"addon_hours":{"captions":1,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":23,"buffer_pct":15,"planning_hours":26.45,"capacity_hours":28.8,"list_sgd":2050,"floor_sgd":1851.5,"effective_rate_sgd":77.5},"hold_budget":{"fixed_hours":8,"unit_hours":7,"editing_hours":21,"addon_hours":{"captions":1.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":30.5,"buffer_pct":15,"planning_hours":35.07,"capacity_hours":50.4,"list_sgd":2700,"floor_sgd":2454.9,"effective_rate_sgd":76.99},"hold_scope":{"fixed_hours":8,"unit_hours":7,"editing_hours":35,"addon_hours":{"captions":2.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":45.5,"buffer_pct":15,"planning_hours":52.32,"capacity_hours":72,"list_sgd":4000,"floor_sgd":3662.4,"effective_rate_sgd":76.45},"phased":{"fixed_hours":8,"unit_hours":7,"editing_hours":35,"addon_hours":{"captions":2.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":45.5,"buffer_pct":15,"planning_hours":52.32,"capacity_hours":72,"list_sgd":4000,"floor_sgd":3662.4,"effective_rate_sgd":76.45,"first_phase_planning_hours":26.45,"first_phase_capacity_hours":28.8}}}
+  },
+  {
+    "name": "no_comparables",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":[],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":3,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":3,"deadline":"2026-12-11","budget_sgd":2700,"direct_costs_sgd":0}},
+    "expected": {"verdict":"accept","reason_codes":[],"missing_fields":[],"invalid_fields":[],"comparables":{"used":[],"excluded":[]},"estimate":{"fixed_hours":8,"unit_hours":7,"editing_hours":21,"addon_hours":{"captions":1.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":30.5,"buffer_pct":25,"planning_hours":38.12,"capacity_hours":50.4,"list_sgd":2700,"floor_sgd":2668.4,"effective_rate_sgd":70.83},"options":[{"option_id":"as_offered","kind":"as_offered","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2700,"phases":[]}],"option_metrics":{}}
+  },
+  {
+    "name": "missing_budget",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":3,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":3,"deadline":"2026-12-11","direct_costs_sgd":0}},
+    "expected": {"verdict":"clarify","reason_codes":["MISSING_FIELD"],"missing_fields":["offer.budget_sgd"],"invalid_fields":[],"comparables":{"used":[],"excluded":[]},"estimate":null,"options":[],"option_metrics":{}}
+  },
+  {
+    "name": "custom_animation",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":3,"editing_level":"standard","graphics":"custom_animation","revision_rounds":2,"caption_versions":3,"deadline":"2026-12-11","budget_sgd":2700,"direct_costs_sgd":0}},
+    "expected": {"verdict":"clarify","reason_codes":["MANUAL_ESTIMATE_REQUIRED"],"missing_fields":[],"invalid_fields":[],"comparables":{"used":[],"excluded":[]},"estimate":null,"options":[],"option_metrics":{}}
+  },
+  {
+    "name": "within_discount",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":3,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":3,"deadline":"2026-12-11","budget_sgd":2550,"direct_costs_sgd":0}},
+    "expected": {"verdict":"accept_with_approval","reason_codes":["BELOW_LIST_NEEDS_APPROVAL"],"missing_fields":[],"invalid_fields":[],"comparables":{"used":[{"project_id":"P-031","unit_hours":6.5},{"project_id":"P-036","unit_hours":7},{"project_id":"P-041","unit_hours":7},{"project_id":"P-044","unit_hours":7.5}],"excluded":[]},"estimate":{"fixed_hours":8,"unit_hours":7,"editing_hours":21,"addon_hours":{"captions":1.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":30.5,"buffer_pct":15,"planning_hours":35.07,"capacity_hours":50.4,"list_sgd":2700,"floor_sgd":2454.9,"effective_rate_sgd":72.71},"options":[{"option_id":"as_offered","kind":"as_offered","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2550,"phases":[]}],"option_metrics":{}}
+  },
+  {
+    "name": "over_discount",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":1,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":1,"deadline":"2026-12-11","budget_sgd":1250,"direct_costs_sgd":0}},
+    "expected": {"verdict":"counter","reason_codes":["OVER_DISCOUNT_LIMIT"],"missing_fields":[],"invalid_fields":[],"comparables":{"used":[{"project_id":"P-031","unit_hours":6.5},{"project_id":"P-036","unit_hours":7},{"project_id":"P-041","unit_hours":7},{"project_id":"P-044","unit_hours":7.5}],"excluded":[]},"estimate":{"fixed_hours":8,"unit_hours":7,"editing_hours":7,"addon_hours":{"captions":0.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":15.5,"buffer_pct":15,"planning_hours":17.82,"capacity_hours":50.4,"list_sgd":1400,"floor_sgd":1247.4,"effective_rate_sgd":70.15},"options":[{"option_id":"hold_date","kind":"hold_date","deliverables":1,"caption_versions":1,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":1400,"phases":[]},{"option_id":"hold_scope","kind":"hold_scope","deliverables":1,"caption_versions":1,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-11-27","price_sgd":1400,"phases":[]}],"option_metrics":{"hold_date":{"fixed_hours":8,"unit_hours":7,"editing_hours":7,"addon_hours":{"captions":0.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":15.5,"buffer_pct":15,"planning_hours":17.82,"capacity_hours":50.4,"list_sgd":1400,"floor_sgd":1247.4,"effective_rate_sgd":78.56},"hold_scope":{"fixed_hours":8,"unit_hours":7,"editing_hours":7,"addon_hours":{"captions":0.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":15.5,"buffer_pct":15,"planning_hours":17.82,"capacity_hours":18,"list_sgd":1400,"floor_sgd":1247.4,"effective_rate_sgd":78.56}}}
+  },
+  {
+    "name": "reject_comparables",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044","P-043","P-047"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":3,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":3,"deadline":"2026-12-11","budget_sgd":2700,"direct_costs_sgd":0}},
+    "expected": {"verdict":"accept","reason_codes":["COMPARABLE_MISMATCH"],"missing_fields":[],"invalid_fields":[],"comparables":{"used":[{"project_id":"P-031","unit_hours":6.5},{"project_id":"P-036","unit_hours":7},{"project_id":"P-041","unit_hours":7},{"project_id":"P-044","unit_hours":7.5}],"excluded":[{"project_id":"P-043","reason":"COMPARABLE_MISMATCH","fields":["revision_rounds","caption_versions"]},{"project_id":"P-047","reason":"COMPARABLE_MISMATCH","fields":["production_mode","editing_level","shoot_days","locations","graphics","caption_versions"]}]},"estimate":{"fixed_hours":8,"unit_hours":7,"editing_hours":21,"addon_hours":{"captions":1.5,"extra_revisions":0,"extra_locations":0,"light_motion":0,"full_script":0},"base_hours":30.5,"buffer_pct":15,"planning_hours":35.07,"capacity_hours":50.4,"list_sgd":2700,"floor_sgd":2454.9,"effective_rate_sgd":76.99},"options":[{"option_id":"as_offered","kind":"as_offered","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2700,"phases":[]}],"option_metrics":{}}
+  },
+  {
+    "name": "invalid_counts",
+    "mode": "evaluate",
+    "input": {"as_of":"2026-11-23","comparable_ids":["P-031","P-036","P-041","P-044"],"offer":{"client":"Juniper Cafe","format":"product_promo","production_mode":"one_shoot_day","shoot_days":1,"locations":1,"interviewees":0,"scripting":"light","deliverables":3,"editing_level":"standard","graphics":"basic_titles","revision_rounds":2,"caption_versions":4,"deadline":"2026-12-11","budget_sgd":2700,"direct_costs_sgd":0}},
+    "expected": {"verdict":"clarify","reason_codes":["INVALID_FIELD"],"missing_fields":[],"invalid_fields":["offer.caption_versions"],"comparables":{"used":[],"excluded":[]},"estimate":null,"options":[],"option_metrics":{}}
+  },
+  {
+    "name": "approved_draft",
+    "mode": "outbound",
+    "input": {"draft":"We can deliver three videos by 11 Dec for S$2,700.","approved_options":[{"option_id":"as_offered","kind":"as_offered","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2700,"phases":[]}],"private_values":{"floor_sgd":2454.9,"min_hourly_rate_sgd":70,"capacity_hours":50.4},"other_client_names":["Glow Studio","Kopi Corner"]},
+    "expected": {"passed":true,"violations":[]}
+  },
+  {
+    "name": "phased_draft",
+    "mode": "outbound",
+    "input": {"draft":"Deliver 2 videos by 4 Dec and 3 videos by 18 Dec for S$4,000.","approved_options":[{"option_id":"phased","kind":"phased","deliverables":5,"caption_versions":5,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-18","price_sgd":4000,"phases":[{"deliverables":2,"deadline":"2026-12-04"},{"deliverables":3,"deadline":"2026-12-18"}]}],"private_values":{"floor_sgd":2454.9,"min_hourly_rate_sgd":70,"capacity_hours":50.4},"other_client_names":["Glow Studio","Kopi Corner"]},
+    "expected": {"passed":true,"violations":[]}
+  },
+  {
+    "name": "private_floor_and_client",
+    "mode": "outbound",
+    "input": {"draft":"Our price floor is S$2,454.90. Ask Glow Studio.","approved_options":[{"option_id":"as_offered","kind":"as_offered","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2700,"phases":[]}],"private_values":{"floor_sgd":2454.9,"min_hourly_rate_sgd":70,"capacity_hours":50.4},"other_client_names":["Glow Studio","Kopi Corner"]},
+    "expected": {"passed":false,"violations":[{"code":"PRIVATE_LABEL","text":"internal pricing or capacity label"},{"code":"OTHER_CLIENT_NAME","text":"Glow Studio"},{"code":"PRIVATE_NUMBER","text":"2,454.90"},{"code":"UNAPPROVED_AMOUNT","text":"S$2,454.90"}]}
+  },
+  {
+    "name": "invented_terms",
+    "mode": "outbound",
+    "input": {"draft":"We can do five videos by 4 Dec for S$2,000.","approved_options":[{"option_id":"as_offered","kind":"as_offered","deliverables":3,"caption_versions":3,"revision_rounds":2,"shoot_days":1,"locations":1,"deadline":"2026-12-11","price_sgd":2700,"phases":[]}],"private_values":{"floor_sgd":2454.9,"min_hourly_rate_sgd":70,"capacity_hours":50.4},"other_client_names":["Glow Studio","Kopi Corner"]},
+    "expected": {"passed":false,"violations":[{"code":"UNAPPROVED_AMOUNT","text":"S$2,000"},{"code":"UNAPPROVED_DATE","text":"4 Dec"},{"code":"UNAPPROVED_COUNT","text":"five videos"}]}
+  }
+]

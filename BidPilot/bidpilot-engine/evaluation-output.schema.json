@@ -1,0 +1,427 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "accept",
+        "accept_with_approval",
+        "counter",
+        "clarify",
+        "decline"
+      ]
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "MISSING_FIELD",
+          "INVALID_FIELD",
+          "MANUAL_ESTIMATE_REQUIRED",
+          "COMPARABLE_MISMATCH",
+          "CAPACITY_SHORTFALL",
+          "BELOW_FLOOR",
+          "BELOW_LIST_NEEDS_APPROVAL",
+          "OVER_DISCOUNT_LIMIT",
+          "NO_FEASIBLE_OPTIONS"
+        ]
+      }
+    },
+    "missing_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "invalid_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "comparables": {
+      "type": "object",
+      "properties": {
+        "used": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "unit_hours": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "project_id",
+              "unit_hours"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "const": "COMPARABLE_MISMATCH"
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "project_id",
+              "reason",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "used",
+        "excluded"
+      ],
+      "additionalProperties": false
+    },
+    "estimate": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fixed_hours": {
+              "type": "number",
+              "minimum": 0
+            },
+            "unit_hours": {
+              "type": "number",
+              "minimum": 0
+            },
+            "editing_hours": {
+              "type": "number",
+              "minimum": 0
+            },
+            "addon_hours": {
+              "type": "object",
+              "properties": {
+                "captions": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "extra_revisions": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "extra_locations": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "light_motion": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "full_script": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "captions",
+                "extra_revisions",
+                "extra_locations",
+                "light_motion",
+                "full_script"
+              ],
+              "additionalProperties": false
+            },
+            "base_hours": {
+              "type": "number",
+              "minimum": 0
+            },
+            "buffer_pct": {
+              "type": "number",
+              "minimum": 0
+            },
+            "planning_hours": {
+              "type": "number",
+              "minimum": 0
+            },
+            "capacity_hours": {
+              "type": "number",
+              "minimum": 0
+            },
+            "list_sgd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "floor_sgd": {
+              "type": "number",
+              "minimum": 0
+            },
+            "effective_rate_sgd": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "fixed_hours",
+            "unit_hours",
+            "editing_hours",
+            "addon_hours",
+            "base_hours",
+            "buffer_pct",
+            "planning_hours",
+            "capacity_hours",
+            "list_sgd",
+            "floor_sgd",
+            "effective_rate_sgd"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "option_id": {
+            "type": "string",
+            "enum": [
+              "as_offered",
+              "hold_date",
+              "hold_budget",
+              "hold_scope",
+              "phased"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "as_offered",
+              "hold_date",
+              "hold_budget",
+              "hold_scope",
+              "phased"
+            ]
+          },
+          "deliverables": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "caption_versions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "revision_rounds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "shoot_days": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "locations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "deadline": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          },
+          "price_sgd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "deliverables": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "deadline": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                }
+              },
+              "required": [
+                "deliverables",
+                "deadline"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "option_id",
+          "kind",
+          "deliverables",
+          "caption_versions",
+          "revision_rounds",
+          "shoot_days",
+          "locations",
+          "deadline",
+          "price_sgd",
+          "phases"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "option_metrics": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "enum": [
+          "hold_date",
+          "hold_budget",
+          "hold_scope",
+          "phased"
+        ]
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "fixed_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "unit_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "editing_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "addon_hours": {
+            "type": "object",
+            "properties": {
+              "captions": {
+                "type": "number",
+                "minimum": 0
+              },
+              "extra_revisions": {
+                "type": "number",
+                "minimum": 0
+              },
+              "extra_locations": {
+                "type": "number",
+                "minimum": 0
+              },
+              "light_motion": {
+                "type": "number",
+                "minimum": 0
+              },
+              "full_script": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "captions",
+              "extra_revisions",
+              "extra_locations",
+              "light_motion",
+              "full_script"
+            ],
+            "additionalProperties": false
+          },
+          "base_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "buffer_pct": {
+            "type": "number",
+            "minimum": 0
+          },
+          "planning_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "capacity_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "list_sgd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "floor_sgd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "effective_rate_sgd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "first_phase_planning_hours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "first_phase_capacity_hours": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "fixed_hours",
+          "unit_hours",
+          "editing_hours",
+          "addon_hours",
+          "base_hours",
+          "buffer_pct",
+          "planning_hours",
+          "capacity_hours",
+          "list_sgd",
+          "floor_sgd",
+          "effective_rate_sgd"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "verdict",
+    "reason_codes",
+    "missing_fields",
+    "invalid_fields",
+    "comparables",
+    "estimate",
+    "options",
+    "option_metrics"
+  ],
+  "additionalProperties": false
+}

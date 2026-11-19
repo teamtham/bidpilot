@@ -1,0 +1,12 @@
+# Local runtime files: server.log holds owner session tokens, never commit it
+server.log
+*.log
+*.db
+*.db-journal
+*.sqlite3
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+.env
+.env.*
