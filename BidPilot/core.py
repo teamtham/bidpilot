@@ -1,6 +1,8 @@
 """BidPilot core workflow: engine calls, versions, digests, release boundary."""
 import copy
 import hashlib
+import functools
+import inspect
 import importlib.util
 import json
 import re
@@ -26,7 +28,7 @@ ENGINE_VERSION = "bidpilot-engine demo (engine.py, unchanged, stdlib only)"
 SAMPLE_BADGE = "Sample data · 23 Nov 2026 · Asia/Singapore"
 
 
-def load_seed(conn):
+def load_seed(conn, commit=True):
     """Import the five CSV tables unchanged (CSV -> JSON tables for engine + seed rows)."""
     data = engine.load_data(ENGINE_DIR / "data")
     conn.execute("DELETE FROM seed_business_rules")
@@ -55,7 +57,8 @@ def load_seed(conn):
         conn.execute("INSERT INTO seed_calendar_weeks VALUES (?,?,?,?,?)", (
             row["week_ending"], float(row["working_hours"]),
             float(row["calendar_busy_hours"]), float(row["unscheduled_owed_hours"]), row["note"]))
-    conn.commit()
+    if commit:
+        conn.commit()
     return data
 
 
@@ -86,6 +89,29 @@ def other_client_names(conn, exclude_client):
     return [r["client"] for r in rows if r["client"] != exclude_client]
 
 
+def _write_locked(fn):
+    """Lock before reads and release an owned transaction on every exit."""
+    signature = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapped(conn, *args, **kwargs):
+        owned = not conn.in_transaction
+        if owned:
+            conn.execute("BEGIN IMMEDIATE")
+        try:
+            result = fn(conn, *args, **kwargs)
+            bound = signature.bind(conn, *args, **kwargs)
+            should_commit = bound.arguments.get("commit", True)
+            if owned and should_commit and conn.in_transaction:
+                conn.commit()
+            return result
+        except Exception:
+            if owned and conn.in_transaction:
+                conn.rollback()
+            raise
+    return wrapped
+
+
 # ---- deal intake ----------------------------------------------------------
 
 def validate_offer_request(offer_request):
@@ -97,7 +123,7 @@ def validate_offer_request(offer_request):
 
 
 def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
-                    require_sample=False):
+                    require_sample=False, commit=True):
     """Unique (source, source_id): a duplicate import resumes the same deal.
 
     With require_sample=True (MCP bridge), a write transaction is opened
@@ -106,9 +132,8 @@ def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
     deal row is written, whether or not the colliding deal already has an
     offer.
     """
-    if require_sample:
-        # Serialize writers so a concurrent claim cannot interleave between
-        # the sample check and the deal/offer writes below.
+    if require_sample and not conn.in_transaction:
+        # Callers may already hold the write transaction for related writes.
         conn.execute("BEGIN IMMEDIATE")
     row = conn.execute("SELECT * FROM deals WHERE source=? AND source_id=?",
                        (source, source_id)).fetchone()
@@ -133,7 +158,8 @@ def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
             " current_version_id, sample_data, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (deal_id, source, source_id, client, raw_inquiry, "new", None, 1, now))
         _step(conn, deal_id, "intake", "ok", "Inbound message claimed")
-    conn.commit()
+    if commit:
+        conn.commit()
     # duplicate intake reuses the deal's first offer: offers are saved with the
     # deal's stable (source, source_id) keys, so the same lookup that inserted
     # finds them again — no transformed keys, no second offer on retry.
@@ -152,7 +178,8 @@ def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
         (offer_id, deal_id, source, source_id, None, round_no,
          offer_request.get("as_of"), j(offer_request.get("offer")),
          j(offer_request), j(offer_request.get("comparable_ids", [])), now))
-    conn.commit()
+    if commit:
+        conn.commit()
     return deal_id, offer_id, True
 
 
@@ -222,7 +249,9 @@ def parse_change_body(body, prior_request):
     return parsed
 
 
-def client_change(conn, deal_id, body, request_id, terms=None):
+@_write_locked
+def client_change(conn, deal_id, body, request_id, terms=None, expected_version_id=None,
+                  expected_token=None):
     """A client change creates a new offer and proposal version; never overwrites history.
 
     The full prior request is decoded once; only explicitly stated terms
@@ -234,6 +263,11 @@ def client_change(conn, deal_id, body, request_id, terms=None):
     """
     deal = conn.execute("SELECT * FROM deals WHERE id=?", (deal_id,)).fetchone()
     version = current_version(conn, deal_id)
+    if expected_version_id is not None and (version is None or version["id"] != expected_version_id):
+        raise ValueError("stale_version")
+    if expected_token is not None and (version is None or version["token_hash"] !=
+            hashlib.sha256(expected_token.encode()).hexdigest()):
+        raise ValueError("stale_version")
     if version is None:
         raise ValueError("No published version to change against")
     if version["status"] != "published":
@@ -282,6 +316,17 @@ def client_change(conn, deal_id, body, request_id, terms=None):
               f"Change request {request_id} queued: parsed terms are not engine-valid")
         conn.commit()
         return None
+    offer_id = create_change_offer(conn, deal_id, version["id"], request_id, request)
+    conn.commit()
+    return offer_id
+
+
+def create_change_offer(conn, deal_id, version_id, request_id, request):
+    """Insert a validated structured change in the caller's transaction."""
+    existing = conn.execute("SELECT id FROM offers WHERE deal_id=? AND source=?",
+                            (deal_id, f"change:{request_id}")).fetchone()
+    if existing:
+        return existing["id"]
     offer_id = db.new_id()
     round_no = conn.execute("SELECT COALESCE(MAX(round),0)+1 AS r FROM offers WHERE deal_id=?",
                             (deal_id,)).fetchone()["r"]
@@ -289,19 +334,44 @@ def client_change(conn, deal_id, body, request_id, terms=None):
         "INSERT INTO offers (id, deal_id, source, source_id, from_version_id, round, as_of,"
         " offer_json, evidence_json, comparable_ids_json, created_at)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (offer_id, deal_id, f"change:{request_id}", f"r{round_no}", version["id"], round_no,
+        (offer_id, deal_id, f"change:{request_id}", f"r{round_no}", version_id, round_no,
          request.get("as_of"), j(request["offer"]), j(request),
-         j(request.get("comparable_ids", [])), now))
-    conn.execute("UPDATE deals SET status='change_requested', current_version_id=? WHERE id=?",
-                 (None, deal_id))
+         j(request.get("comparable_ids", [])), db.now()))
+    conn.execute("UPDATE deals SET status='change_requested', current_version_id=NULL WHERE id=?",
+                 (deal_id,))
     _step(conn, deal_id, "client_change", "ok", f"Change request {request_id} queued", offer_id)
-    conn.commit()
     return offer_id
+
+
+STEP_KEYS = frozenset(("claimed", "intake", "scoping", "engine", "draft", "outbound",
+                       "review", "needs_information", "stale_version", "blocked", "error"))
+STEP_STATUSES = frozenset(("running", "ok", "blocked", "error", "skipped"))
+
+
+def record_step(conn, deal_id, offer_id, step_key, status, private_note=None):
+    """Append an agent step in the caller's transaction, closing an open run."""
+    if step_key not in STEP_KEYS or status not in STEP_STATUSES:
+        raise ValueError("invalid_step_key_or_status")
+    if offer_id and not conn.execute("SELECT 1 FROM offers WHERE id=? AND deal_id=?",
+                                     (offer_id, deal_id)).fetchone():
+        raise ValueError("offer_ownership_mismatch")
+    now = db.now()
+    if status != "running":
+        conn.execute("UPDATE run_steps SET finished_at=? WHERE id=(SELECT id FROM run_steps "
+                     "WHERE deal_id=? AND offer_id IS ? AND step_key=? AND status='running' "
+                     "AND finished_at IS NULL ORDER BY rowid DESC LIMIT 1)",
+                     (now, deal_id, offer_id, step_key))
+    step_id = db.new_id()
+    conn.execute("INSERT INTO run_steps VALUES (?,?,?,?,?,?,?,?)",
+                 (step_id, deal_id, offer_id, step_key, status, private_note, now,
+                  None if status == "running" else now))
+    return step_id
 
 
 # ---- evaluation -----------------------------------------------------------
 
-def evaluate(conn, deal_id, offer_id):
+@_write_locked
+def evaluate(conn, deal_id, offer_id, commit=True):
     """Run the real engine once per offer; retries are idempotent.
 
     If the offer was already evaluated, the stored evaluation and its
@@ -309,6 +379,8 @@ def evaluate(conn, deal_id, offer_id):
     another version.
     """
     offer_row = conn.execute("SELECT * FROM offers WHERE id=?", (offer_id,)).fetchone()
+    if offer_row is None or offer_row["deal_id"] != deal_id:
+        raise ValueError("offer_not_found_or_ownership_mismatch")
     existing = conn.execute("SELECT * FROM evaluations WHERE offer_id=?",
                             (offer_id,)).fetchone()
     if existing:
@@ -361,11 +433,12 @@ def evaluate(conn, deal_id, offer_id):
                  (deal_id,))
     _step(conn, deal_id, "engine_evaluate", "ok",
           f"verdict={result['verdict']} reasons={result['reason_codes']}", offer_id)
-    conn.commit()
+    if commit:
+        conn.commit()
     return eval_id, version_id
 
 
-def reevaluate(conn, offer_id):
+def reevaluate(conn, offer_id, commit=True):
     """Explicit fresh evaluation path for a stale offer.
 
     Creates a NEW offer round carrying the identical stored evidence (terms are
@@ -394,7 +467,8 @@ def reevaluate(conn, offer_id):
          j(request["offer"]), j(request), j(request.get("comparable_ids", [])), now))
     _step(conn, deal_id, "reevaluate", "ok",
           f"Fresh evaluation round created from offer {offer_id}", new_offer)
-    conn.commit()
+    if commit:
+        conn.commit()
     return new_offer
 
 
@@ -438,8 +512,9 @@ def options_of(conn, version_row):
     if not ids:
         return []
     marks = ",".join("?" * len(ids))
-    rows = conn.execute(f"SELECT * FROM options WHERE id IN ({marks}) ORDER BY rowid", ids).fetchall()
-    return rows
+    rows = conn.execute(f"SELECT * FROM options WHERE id IN ({marks})", ids).fetchall()
+    by_id = {row["id"]: row for row in rows}
+    return [by_id[option_id] for option_id in ids if option_id in by_id]
 
 
 def option_set_errors(conn, version_row):
@@ -471,7 +546,18 @@ def option_set_errors(conn, version_row):
     errors = []
     if sorted(row_by_key) != sorted(expected_keys):
         errors.append("option_keys_not_complete")
-    expected_ids = [row_by_key[k]["id"] for k in expected_keys if k in row_by_key]
+    selected_keys = expected_keys
+    if version_row["import_option_keys_json"] is not None:
+        try:
+            selected_keys = uj(version_row["import_option_keys_json"])
+            if (not isinstance(selected_keys, list) or not selected_keys or
+                    any(not isinstance(k, str) or k not in expected_keys for k in selected_keys) or
+                    len(set(selected_keys)) != len(selected_keys)):
+                raise ValueError("invalid subset")
+        except (ValueError, TypeError):
+            errors.append("option_import_subset_invalid")
+            selected_keys = []
+    expected_ids = [row_by_key[k]["id"] for k in selected_keys if k in row_by_key]
     stored_ids = uj(version_row["public_option_ids_json"]) or []
     if stored_ids != expected_ids:
         if (sorted(stored_ids) == sorted(expected_ids)
@@ -558,7 +644,8 @@ def seed_errors(conn, version_row):
     return _mirror_errors(conn, data)
 
 
-def check_draft(conn, version_id):
+@_write_locked
+def check_draft(conn, version_id, commit=True):
     version = conn.execute("SELECT * FROM proposal_versions WHERE id=?", (version_id,)).fetchone()
     deal = conn.execute("SELECT * FROM deals WHERE id=?", (version["deal_id"],)).fetchone()
     eval_row = conn.execute("SELECT * FROM evaluations WHERE offer_id=?",
@@ -576,7 +663,8 @@ def check_draft(conn, version_id):
                      (version_id,))
         _step(conn, deal["id"], "outbound_check", "blocked", j(outcome["violations"]),
               version["offer_id"])
-        conn.commit()
+        if commit:
+            conn.commit()
         return outcome
     result = uj(eval_row["result_json"])
     est = result.get("estimate")
@@ -607,10 +695,12 @@ def check_draft(conn, version_id):
         conn.execute("UPDATE proposal_versions SET status='blocked' WHERE id=?", (version_id,))
     elif version["status"] in ("draft", "blocked") and outcome["passed"]:
         conn.execute("UPDATE proposal_versions SET status='checked' WHERE id=?", (version_id,))
-    conn.commit()
+    if commit:
+        conn.commit()
     return outcome
 
 
+@_write_locked
 def save_draft(conn, version_id, body, commit=True):
     """Editing text creates a fresh version; old check/approval become ineligible.
 
@@ -631,6 +721,8 @@ def save_draft(conn, version_id, body, commit=True):
         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (new_version, deal_id, version["offer_id"], version["id"], prior + 1, "draft", body,
          "unchecked", None, j(option_ids), None, None, None, None, now))
+    conn.execute("UPDATE proposal_versions SET import_option_keys_json=? WHERE id=?",
+                 (version["import_option_keys_json"], new_version))
     _step(conn, deal_id, "edit_draft", "ok", "New version created; fresh check required",
           version["offer_id"])
     if commit:
@@ -770,6 +862,7 @@ def published_by_token(conn, token):
                         (token_hash,)).fetchone()
 
 
+@_write_locked
 def client_accept(conn, token, option_id):
     version = published_by_token(conn, token)
     if not version:

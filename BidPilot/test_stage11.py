@@ -402,7 +402,7 @@ class Stage11Tests(unittest.TestCase):
         for banned in ("confirm_booking", "cancel_reservation", "reserve",
                        "modify_reservation", "release_capacity"):
             self.assertNotIn(banned, names)
-        self.assertEqual(len(names), 7)
+        self.assertEqual(len(names), 12)
         # client projection: no private ledger/metric terms cross the boundary
         version = conn.execute("SELECT * FROM proposal_versions WHERE id=?",
                                (f["version_id"],)).fetchone()

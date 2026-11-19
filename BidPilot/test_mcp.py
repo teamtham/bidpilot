@@ -34,6 +34,8 @@ INQUIRY = {
 
 TOOL_NAMES = ["claim_intake", "get_deal", "evaluate_offer", "save_draft",
               "check_draft", "run_trace", "negotiation_payload"]
+AGENT_TOOL_NAMES = ["record_step", "save_agent_output", "get_scoping_history",
+                    "list_pending_work", "submit_change_offer"]
 
 
 class Client:
@@ -128,7 +130,7 @@ class MCPTests(unittest.TestCase):
         self.initialize()
         resp = self.client.request("tools/list")
         tools = resp["result"]["tools"]
-        self.assertEqual([t["name"] for t in tools], TOOL_NAMES)
+        self.assertEqual([t["name"] for t in tools], TOOL_NAMES + AGENT_TOOL_NAMES)
         for t in tools:
             self.assertEqual(t["inputSchema"]["type"], "object")
         text = json.dumps(tools)
