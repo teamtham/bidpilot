@@ -477,7 +477,20 @@ def t_list_pending_work(args):
                      "FROM messages m JOIN deals d ON d.id=m.deal_id JOIN proposal_versions v ON v.id=m.version_id "
                      "WHERE d.sample_data=1 AND m.direction='inbound' AND NOT EXISTS "
                      "(SELECT 1 FROM offers o WHERE o.deal_id=m.deal_id AND o.source='change:' || m.request_id) ORDER BY m.rowid")]
-        return {"inquiries": inquiries, "change_requests": changes}
+        # Client changes the proposal page already turned into a structured
+        # offer (or that were submitted but not yet priced): the agent still
+        # has to check the terms and run the engine on them.
+        unevaluated = [{"deal_id": r["deal_id"], "offer_id": r["id"], "round": r["round"],
+                        "request_id": r["source"][len("change:"):],
+                        "body": r["body"], "offer": db.uj(r["offer_json"])}
+                       for r in conn.execute(
+            "SELECT o.*, (SELECT m.body FROM messages m WHERE m.deal_id=o.deal_id"
+            " AND m.direction='inbound' AND 'change:' || m.request_id=o.source) AS body "
+            "FROM offers o JOIN deals d ON d.id=o.deal_id "
+            "WHERE d.sample_data=1 AND o.source LIKE 'change:%' AND NOT EXISTS "
+            "(SELECT 1 FROM evaluations e WHERE e.offer_id=o.id) ORDER BY o.rowid")]
+        return {"inquiries": inquiries, "change_requests": changes,
+                "unevaluated_offers": unevaluated}
     finally:
         conn.close()
 
@@ -555,7 +568,7 @@ TOOLS = [
 TOOLS += [("record_step", t_record_step, "Record an agent run step."),
           ("save_agent_output", t_save_agent_output, "Save private agent output."),
           ("get_scoping_history", t_get_scoping_history, "Read private scoping history."),
-          ("list_pending_work", t_list_pending_work, "List unclaimed sample inquiries and queued changes."),
+          ("list_pending_work", t_list_pending_work, "List unclaimed sample inquiries, queued changes, and client change offers not yet evaluated."),
           ("submit_change_offer", t_submit_change_offer, "Submit structured change terms.")]
 
 TOOLS_BY_NAME = {name: fn for name, fn, _ in TOOLS}
