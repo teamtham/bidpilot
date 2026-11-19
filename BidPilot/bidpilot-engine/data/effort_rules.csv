@@ -1,0 +1,11 @@
+rule,hours,applies
+fixed_one_shoot_day,8,Per project including planning and one shoot day
+fixed_edit_only,2,Per project with no shoot
+fixed_extra_shoot_day,8,Per shoot day beyond the first
+caption_per_version,0.5,Per captioned version
+extra_revision_round,2,Per round beyond the included 2
+extra_location,3,Per location beyond the first
+light_motion_per_video,3,Per video with light motion graphics
+full_script,4,Per project needing a full script
+custom_animation,manual,Stops the run and asks Alex
+baseline_hours_per_promo_video,7,Used only when no comparable jobs exist

@@ -1,0 +1,10 @@
+key,value,meaning
+working_hours_per_week,30,Billable hours Alex can work in a normal week
+capacity_buffer_pct,10,Share of free hours kept in reserve
+min_hourly_rate_sgd,70,Price floor per planning hour
+included_revision_rounds,2,Revision rounds in every package
+discount_limit_pct,10,Most the founder will discount below list
+buffer_pct_3plus_comparables,15,Uncertainty buffer with 3 or more comparable jobs
+buffer_pct_1to2_comparables,20,Uncertainty buffer with 1 or 2 comparable jobs
+buffer_pct_no_comparables,25,Uncertainty buffer with none
+offer_expiry_days,5,Reserved for a later release

@@ -1,0 +1,12 @@
+project_id,client,format,production_mode,shoot_days,locations,scripting,deliverables,editing_level,graphics,revision_rounds,caption_versions,est_hours,actual_hours,price_sgd,start,end
+P-029,FinTrack,testimonial,one_shoot_day,1,1,full,2,standard,basic_titles,2,2,20,26,2400,2025-02-03,2025-02-21
+P-031,Kopi Corner,product_promo,one_shoot_day,1,1,light,2,standard,basic_titles,2,0,18,21,1950,2025-03-03,2025-03-14
+P-033,Marina Night Run,event_recap,multi_day,2,2,none,4,standard,basic_titles,2,0,28,34,3100,2025-04-07,2025-04-25
+P-036,Rise Bakery,product_promo,one_shoot_day,1,1,light,3,standard,basic_titles,2,0,24,29,2550,2025-05-12,2025-05-30
+P-038,NovaPay,explainer,edit_only,0,0,full,1,heavy,custom_animation,3,1,30,40,3800,2025-06-09,2025-07-04
+P-040,Tan Dental,testimonial,one_shoot_day,1,1,light,3,standard,basic_titles,2,0,22,27,2500,2025-07-14,2025-08-01
+P-041,Leaf and Ladle Cafe,product_promo,one_shoot_day,1,1,light,3,standard,basic_titles,2,0,25,29,2550,2025-08-04,2025-08-22
+P-043,Mama's Kitchen,product_promo,one_shoot_day,1,1,light,2,standard,basic_titles,4,2,19,27,2350,2025-09-01,2025-09-19
+P-044,Saffron House,product_promo,one_shoot_day,1,1,light,4,standard,basic_titles,2,0,32,38,3150,2025-10-06,2025-10-24
+P-046,Glow Studio,social_reel,edit_only,0,0,none,6,simple,basic_titles,1,6,12,15,1500,2025-10-27,2025-11-07
+P-047,Harbour Fitness,product_promo,multi_day,2,3,light,3,heavy,light_motion,2,3,38,46,4300,2025-11-03,2025-11-21

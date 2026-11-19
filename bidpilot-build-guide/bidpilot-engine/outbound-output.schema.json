@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "passed": {
+      "type": "boolean"
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "PRIVATE_LABEL",
+              "OTHER_CLIENT_NAME",
+              "PRIVATE_NUMBER",
+              "UNAPPROVED_AMOUNT",
+              "UNAPPROVED_DATE",
+              "UNAPPROVED_COUNT",
+              "UNRECOGNIZED_NUMBER"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "code",
+          "text"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "passed",
+    "violations"
+  ],
+  "additionalProperties": false
+}
