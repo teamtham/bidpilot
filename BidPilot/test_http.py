@@ -210,6 +210,38 @@ class HttpTests(unittest.TestCase):
         status, _ = request(self.base, "GET", "/p/not-a-real-token", None, {})
         self.assertEqual(status, 404)
 
+    # -- founder stage timeline (private) ------------------------------------
+    def test_founder_dashboard_renders_stage_timeline(self):
+        f = self.flow("timeline-1")
+        status, html = self.get("/")
+        self.assertEqual(status, 200)
+        # the private founder timeline is served and built from run steps
+        self.assertIn("Deal timeline", html)
+        self.assertIn("stageTimelineHtml", html)
+        self.assertIn("stage-timeline", html)
+        self.assertIn("STAGE_DEFS", html)
+        for label in ("Intake", "Scoping", "Engine evaluation", "Negotiator draft",
+                      "Outbound check", "Founder review", "Client response", "Booking"):
+            self.assertIn(label, html)
+        # state() exposes the backward-compatible trigger field on every step
+        d = self.deal_state(f["deal_id"])
+        self.assertTrue(d["steps"])
+        for s in d["steps"]:
+            self.assertIn("trigger", s)
+        # founder approve steps record a manual trigger
+        approve = [s for s in d["steps"] if s["step_key"] == "approve"]
+        self.assertTrue(approve)
+        self.assertTrue(all(s["trigger"] == "manual" for s in approve))
+
+    def test_client_page_never_exposes_timeline(self):
+        f = self.flow("timeline-2")
+        status, html = request(self.base, "GET", f["url"], None, {})
+        self.assertEqual(status, 200)
+        for banned in ("stage-timeline", "Deal timeline", "stageTimelineHtml",
+                       "STAGE_DEFS", "stage-trigger", "run_steps", "private_note",
+                       "Inbound message claimed"):
+            self.assertNotIn(banned, html)
+
     # -- unsafe draft ----------------------------------------------------------
     def test_unsafe_draft_blocked(self):
         imp = self.import_inquiry("unsafe-1")
