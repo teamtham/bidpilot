@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, version_id TEXT, acto
   action TEXT, reviewed_digest TEXT, note TEXT, decided_at REAL);
 CREATE TABLE IF NOT EXISTS confirmations (id TEXT PRIMARY KEY, deal_id TEXT, version_id TEXT,
   option_id TEXT, actor_id TEXT, decided_at REAL);
+CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, source TEXT DEFAULT 'site',
+  source_id TEXT UNIQUE, fields_json TEXT, raw_message TEXT, received_at REAL,
+  sample_data INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS agent_outputs (id TEXT PRIMARY KEY, deal_id TEXT, offer_id TEXT,
+  kind TEXT, payload_json TEXT, request_id TEXT UNIQUE, created_at REAL);
 CREATE TABLE IF NOT EXISTS learnings (id TEXT PRIMARY KEY, deal_id TEXT, source TEXT,
   body TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS mcp_operations (request_id TEXT PRIMARY KEY, tool TEXT,
@@ -55,6 +60,10 @@ CREATE TABLE IF NOT EXISTS capacity_revisions (revision INTEGER PRIMARY KEY,
 
 
 _MIGRATIONS = [
+    ("proposal_versions", "import_option_keys_json",
+     "ALTER TABLE proposal_versions ADD COLUMN import_option_keys_json TEXT"),
+    ("mcp_operations", "deal_id",
+     "ALTER TABLE mcp_operations ADD COLUMN deal_id TEXT"),
     # Phase 5: record the authoritative seed snapshot hash per evaluation.
     ("evaluations", "seed_hash", "ALTER TABLE evaluations ADD COLUMN seed_hash TEXT"),
     # Stage 11: capacity snapshot/revision the evaluation ran against.
@@ -65,11 +74,17 @@ _MIGRATIONS = [
 
 
 def _ensure_columns(conn):
-    for table, column, ddl in _MIGRATIONS:
-        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in cols:
-            conn.execute(ddl)
-    conn.commit()
+    def has_column(table, column):
+        return any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})"))
+
+    if all(has_column(table, column) for table, column, _ in _MIGRATIONS):
+        return
+    # The dashboard and stdio server can open the same older DB concurrently.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        for table, column, ddl in _MIGRATIONS:
+            if not has_column(table, column):
+                conn.execute(ddl)
 
 
 def now():
@@ -83,8 +98,12 @@ def new_id():
 def connect(path):
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    _ensure_columns(conn)
+    try:
+        conn.executescript(SCHEMA)
+        _ensure_columns(conn)
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 

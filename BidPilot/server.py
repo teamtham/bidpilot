@@ -3,20 +3,82 @@
 Owner routes require a per-launch owner session token; every state-changing
 POST (founder and client token routes) requires a same-origin request.
 """
+import argparse
+import hashlib
+import html
 import json
+import math
+import re
 import secrets
 import sys
+import threading
+import time
 import urllib.parse
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import core
+import dashboard_ops
 import db
 
 DB_PATH = Path(__file__).resolve().parent / "bidpilot.db"
 SAMPLE_BADGE = core.SAMPLE_BADGE
-OWNER_TOKEN = None  # set per launch by make_server()
+QUOTE_LIMIT = 16 * 1024
+_quote_lock = threading.Lock()
+_quote_times = []
+
+QUOTE_TEXT = ("name_business", "reply_email", "project_brief", "video_format",
+              "production_mode", "scripting", "editing_level", "graphics",
+              "deadline", "travel_kit_talent")
+QUOTE_COUNTS = ("shoot_days", "locations", "interviewees", "deliverables",
+                "revision_rounds", "caption_versions")
+
+
+def validate_quote(data, form=False):
+    if not isinstance(data, dict):
+        raise ValueError("Expected an object")
+    allowed = set(QUOTE_TEXT + QUOTE_COUNTS + ("budget_sgd", "caption_every_deliverable", "request_id"))
+    if set(data) - allowed:
+        raise ValueError("Unknown field")
+    request_id = data.get("request_id")
+    if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
+        raise ValueError("request_id is required")
+    fields = {}
+    for key in QUOTE_TEXT:
+        value = data.get(key, "")
+        if not isinstance(value, str):
+            raise ValueError(key + " must be text")
+        fields[key] = value.strip()
+    for key in QUOTE_COUNTS:
+        value = data.get(key)
+        if form and isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+            value = int(value)
+        if type(value) is not int or value < 0:
+            raise ValueError(key + " must be a nonnegative integer")
+        fields[key] = value
+    value = data.get("budget_sgd")
+    if form and isinstance(value, str):
+        value = float(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        raise ValueError("budget_sgd must be a nonnegative number")
+    fields["budget_sgd"] = value
+    value = data.get("caption_every_deliverable", False)
+    if form:
+        if value not in (False, "on", "true", "1"):
+            raise ValueError("caption_every_deliverable must be a boolean")
+        value = bool(value)
+    if type(value) is not bool:
+        raise ValueError("caption_every_deliverable must be a boolean")
+    fields["caption_every_deliverable"] = value
+    if fields["deadline"]:
+        date.fromisoformat(fields["deadline"])
+    return request_id.strip(), fields
+
+
+def reject_nonfinite(value):
+    raise ValueError(f"Invalid JSON number {value}")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -27,13 +89,14 @@ class Handler(BaseHTTPRequestHandler):
     def open_db(self):
         # One connection per request: ThreadingHTTPServer serves requests on
         # multiple threads and SQLite connections are thread-bound.
-        self.conn = db.connect(DB_PATH)
+        self.conn = db.connect(self.server.db_path)
 
     def send_json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -43,6 +106,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "same-origin")
         if noindex:
             self.send_header("X-Robots-Tag", "noindex, nofollow")
         self.send_header("Content-Length", str(len(body)))
@@ -68,17 +132,20 @@ class Handler(BaseHTTPRequestHandler):
     def owner_ok(self):
         """Founder routes need the per-launch owner session token."""
         supplied = self.headers.get("X-Owner-Token") or (self.query().get("owner") or [None])[0]
-        return bool(supplied and OWNER_TOKEN
-                    and secrets.compare_digest(supplied, OWNER_TOKEN))
+        return bool(supplied and secrets.compare_digest(
+            supplied.encode("utf-8"), self.server.owner_token.encode("ascii")))
 
     def same_origin(self):
-        """State changes only from same-origin requests (Origin/Referer == Host)."""
+        """Require the HTTP origin of the loopback server on every write."""
         supplied = self.headers.get("Origin") or self.headers.get("Referer")
         if not supplied:
             return False
-        host = self.headers.get("Host", "")
-        netloc = urllib.parse.urlsplit(supplied).netloc
-        return bool(netloc and netloc == host)
+        try:
+            origin = urllib.parse.urlsplit(supplied)
+        except ValueError:
+            return False
+        return (origin.scheme == "http" and bool(origin.netloc)
+                and origin.netloc == self.headers.get("Host", ""))
 
     # -- routes ------------------------------------------------------------
     def do_GET(self):
@@ -86,6 +153,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+            if path == "/quote":
+                return self.send_html(quote_page())
             if path == "/" or path == "/dashboard":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
@@ -93,6 +162,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/state":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
+                self.conn.execute("BEGIN")
                 return self.send_json(state(self.conn))
             if path.startswith("/p/"):
                 token = path[3:].strip("/")
@@ -109,6 +179,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if not self.same_origin():
             return self.forbidden("same-origin request required")
+        if path == "/quote":
+            return self.quote_post()
         if path.startswith("/p/"):
             return self.token_post(path)
         if not self.owner_ok():
@@ -117,8 +189,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             try:
                 data = self.body()
-            except json.JSONDecodeError:
+            except (ValueError, RecursionError):
                 return self.send_json({"ok": False, "error": "bad_json"}, 400)
+
+            if path == "/api/import-run" or path == "/api/reset-sample":
+                operation = (dashboard_ops.import_run if path == "/api/import-run"
+                             else dashboard_ops.reset_sample)
+                try:
+                    result = operation(self.conn, data)
+                except ValueError as exc:
+                    status = 409 if str(exc) == "request_id_conflict" else 400
+                    return self.send_json({"ok": False, "error": str(exc)}, status)
+                return self.send_json({"ok": True, **result})
 
             if path == "/api/import":
                 offer_request = data["offer_request"]
@@ -191,6 +273,62 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.conn.close()
 
+    def quote_post(self):
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+            if length < 0 or length > QUOTE_LIMIT:
+                raise ValueError("Invalid body size")
+            raw = self.rfile.read(length).decode("utf-8")
+            if content_type == "application/json":
+                data = json.loads(raw, parse_constant=reject_nonfinite)
+                form = False
+            elif content_type == "application/x-www-form-urlencoded":
+                pairs = urllib.parse.parse_qsl(raw, keep_blank_values=True, strict_parsing=True, encoding="utf-8", errors="strict")
+                data = dict(pairs)
+                if len(data) != len(pairs):
+                    raise ValueError("Duplicate field")
+                form = True
+            else:
+                raise ValueError("Unsupported content type")
+            request_id, fields = validate_quote(data, form)
+            request_id = "quote:" + request_id
+            request_id.encode("utf-8")
+            payload = json.dumps({"tool": "quote", "fields": fields}, sort_keys=True,
+                                 separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        except (ValueError, OverflowError, RecursionError):
+            return self.send_json({"ok": False, "error": "invalid_quote"}, 400)
+        payload_hash = hashlib.sha256(payload).hexdigest()
+        self.open_db()
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            op = self.conn.execute("SELECT * FROM mcp_operations WHERE request_id=?", (request_id,)).fetchone()
+            if op:
+                self.conn.rollback()
+                if op["tool"] != "quote" or op["payload_hash"] != payload_hash:
+                    return self.send_json({"ok": False, "error": "request_id_conflict"}, 409)
+                result = db.uj(op["result_json"])
+            else:
+                with _quote_lock:
+                    now = time.monotonic()
+                    _quote_times[:] = [t for t in _quote_times if t > now - 600]
+                    if len(_quote_times) >= 20:
+                        self.conn.rollback()
+                        return self.send_json({"ok": False, "error": "rate_limited"}, 429)
+                    _quote_times.append(now)
+                source_id = "site-" + secrets.token_hex(8)
+                result = {"ok": True, "source_id": source_id}
+                self.conn.execute("INSERT INTO inbox (id, source, source_id, fields_json, raw_message, received_at, sample_data) VALUES (?, 'site', ?, ?, ?, ?, 1)",
+                    (secrets.token_hex(16), source_id, db.j(fields), fields["project_brief"], db.now()))
+                self.conn.execute("INSERT INTO mcp_operations (request_id, tool, payload_hash, result_json, created_at) VALUES (?, 'quote', ?, ?, ?)",
+                    (request_id, payload_hash, db.j(result), db.now()))
+                self.conn.commit()
+            if not form:
+                return self.send_json(result)
+            return self.send_html('<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Request received</title><h1>Request received</h1><p>Reference: ' + html.escape(result["source_id"]) + '</p></html>')
+        finally:
+            self.conn.close()
+
     def token_post(self, path):
         """Client token routes: same-origin enforced, no owner token involved."""
         self.open_db()
@@ -215,8 +353,12 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     offer_id = core.client_change(self.conn, version["deal_id"],
                                                   data.get("body", ""), request_id,
-                                                  data.get("terms"))
+                                                  data.get("terms"),
+                                                  expected_version_id=version["id"],
+                                                  expected_token=token)
                 except ValueError as exc:
+                    if str(exc) == "stale_version":
+                        return self.send_json({"ok": False, "error": "not_found"}, 404)
                     return self.send_json({"ok": False, "error": str(exc)}, 400)
                 if offer_id is None:
                     return self.send_json({"ok": True, "status": "clarify", "offer_id": None,
@@ -228,8 +370,18 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- client view -------------------------------------------------------
     def client_page(self, token):
+        self.conn.execute("BEGIN")
         version = core.published_by_token(self.conn, token)
         if not version:
+            return self.not_found()
+        try:
+            option_rows = core.options_of(self.conn, version)
+            valid = (version["outbound_status"] == "passed"
+                     and core.digest(version, option_rows) == version["checked_digest"]
+                     and not core.option_set_errors(self.conn, version))
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if not valid:
             return self.not_found()
         return self.send_html(render_client_html(self.conn, version, preview=False))
 
@@ -239,6 +391,34 @@ class Handler(BaseHTTPRequestHandler):
         if not version:
             return self.not_found()
         return self.send_html(render_client_html(self.conn, version, preview=True))
+
+
+def quote_page():
+    page = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Request a quote</title>
+<style>body{font:16px system-ui;max-width:700px;margin:auto;padding:1rem;line-height:1.5} form{display:grid;gap:1rem}label{display:grid;gap:.25rem}input,select,textarea,button{font:inherit;padding:.6rem;box-sizing:border-box;width:100%}input[type=checkbox]{width:auto}button{cursor:pointer}textarea{min-height:6rem}</style></head>
+<body><p>Sample data · 23 Nov 2026 · Asia/Singapore</p><h1>Request a quote</h1>
+<form method="post" action="/quote"><input type="hidden" name="request_id" value="QUOTE_REQUEST_ID">
+<label>Name / business<input name="name_business" required></label><label>Reply email<input type="email" name="reply_email" required></label>
+<label>Project brief<textarea name="project_brief" required></textarea></label>
+<label>Video format<input name="video_format" required></label>
+<label>Production mode<select name="production_mode"><option value="edit_only">Edit-only</option><option value="on_location">On-location</option></select></label>
+<label>Shoot days<input type="number" min="0" name="shoot_days" value="0" required></label>
+<label>Locations<input type="number" min="0" name="locations" value="0" required></label>
+<label>Interviewees<input type="number" min="0" name="interviewees" value="0" required></label>
+<label>Scripting<select name="scripting"><option value="none">None</option><option value="light">Light</option><option value="full">Full</option></select></label>
+<label>Number of videos<input type="number" min="0" name="deliverables" value="1" required></label>
+<label>Editing complexity<input name="editing_level" required></label><label>Graphics type<input name="graphics" required></label>
+<label>Revision rounds<input type="number" min="0" name="revision_rounds" value="0" required></label>
+<label>Captioned video count<input type="number" min="0" name="caption_versions" value="0" required></label>
+<label><span><input type="checkbox" name="caption_every_deliverable"> Caption every deliverable</span></label>
+<label>Delivery deadline<input type="date" name="deadline" required></label>
+<label>SGD budget<input type="number" name="budget_sgd" min="0" step="0.01" required></label>
+<label>Travel, kit or talent needs<textarea name="travel_kit_talent"></textarea></label>
+<button type="button" id="preset">Use demo preset</button><button type="submit">Submit request</button></form>
+<script>document.getElementById('preset').onclick = () => {const f=document.querySelector('form');
+for (const [k,v] of Object.entries({editing_level:'standard',graphics:'basic_titles',scripting:'light',revision_rounds:2,interviewees:0,shoot_days:1,locations:1,production_mode:'on_location'})) f.elements[k].value=v;};</script></body></html>"""
+    return page.replace("QUOTE_REQUEST_ID", secrets.token_urlsafe(18))
 
 
 def conn_version(conn, version_id):
@@ -502,8 +682,13 @@ def state(conn):
                            "evaluated": evaluated,
                            "offer": db.uj(o["offer_json"]), "as_of": o["as_of"]})
         steps = [dict(r) for r in conn.execute(
-            "SELECT step_key, status, private_note, started_at FROM run_steps"
-            " WHERE deal_id=? ORDER BY started_at", (deal["id"],)).fetchall()]
+            "SELECT offer_id, step_key, status, private_note, started_at, finished_at"
+            " FROM run_steps WHERE deal_id=? ORDER BY started_at, rowid", (deal["id"],))]
+        agent_outputs = [{"offer_id": r["offer_id"], "kind": r["kind"],
+                          "created_at": r["created_at"], "payload": db.uj(r["payload_json"])}
+                         for r in conn.execute(
+                             "SELECT offer_id, kind, created_at, payload_json FROM agent_outputs"
+                             " WHERE deal_id=? ORDER BY created_at, rowid", (deal["id"],))]
         messages = [dict(r) for r in conn.execute(
             "SELECT direction, body, request_id, created_at FROM messages"
             " WHERE deal_id=? ORDER BY created_at", (deal["id"],)).fetchall()]
@@ -516,9 +701,13 @@ def state(conn):
                       "source_id": deal["source_id"], "client": deal["client"],
                       "status": deal["status"], "raw_inquiry": deal["raw_inquiry"],
                       "versions": versions, "offers": offers,
-                      "steps": steps, "messages": messages, "approvals": approvals,
+                      "steps": steps, "agent_outputs": agent_outputs,
+                      "messages": messages, "approvals": approvals,
                       "queued_clarifications": queued})
-    return {"badge": SAMPLE_BADGE, "capacity": panel, "deals": deals}
+    inbox = [{"source_id": r["source_id"], "fields": db.uj(r["fields_json"]),
+              "received_at": r["received_at"], "claimed": bool(r["deal_id"])}
+             for r in conn.execute("SELECT i.*, d.id AS deal_id FROM inbox i LEFT JOIN deals d ON d.source=i.source AND d.source_id=i.source_id ORDER BY i.received_at DESC").fetchall()]
+    return {"badge": SAMPLE_BADGE, "capacity": panel, "deals": deals, "inbox": inbox}
 
 
 BASE_STYLE = """
@@ -680,6 +869,10 @@ def founder_page(conn):
    Rotate / reissue — the old link stops working immediately. The token is never logged.</p>
 </div>
 <div class="error-box" id="error-box" role="alert"></div>
+<div class="ctl" aria-label="Dashboard updates">
+  <button type="button" class="ghost" id="live-updates" aria-pressed="true">Live updates on</button>
+  <button type="button" class="ghost" id="refresh-state">Refresh</button>
+</div>
 
 <fieldset><legend>Sample intake</legend>
   <p class="small">Raw inbound message plus explicit structured inputs — validated by the
@@ -729,6 +922,27 @@ def founder_page(conn):
    fixture resumes that deal instead of creating a new one.</p>
 </fieldset>
 
+<fieldset><legend>Import Run JSON</legend>
+  <form id="import-run" onsubmit="return submitRun(event)">
+    <label>Run JSON file <input id="run-file" type="file" accept=".json,application/json"></label>
+    <label for="run-json">Run JSON</label>
+    <textarea id="run-json" required></textarea>
+    <button type="submit">Import run</button>
+  </form>
+  <p id="run-status" class="msg-line small" role="status"></p>
+</fieldset>
+
+<fieldset><legend>Reset sample data</legend>
+  <form id="reset-sample" onsubmit="return resetSample(event)">
+    <label>Type <code>RESET SAMPLE DATA</code> <input name="confirm" required></label>
+    <button type="submit" class="danger">Reset sample data</button>
+  </form>
+  <p id="reset-status" class="msg-line small" role="status"></p>
+</fieldset>
+
+<h2>Inbox</h2>
+<div id="inbox" class="small">Loading inquiries…</div>
+
 <h2>Aggregate planning capacity (private)</h2>
 <div id="capacity" class="small">Loading capacity…</div>
 
@@ -738,6 +952,11 @@ def founder_page(conn):
 <script>
 const OWNER = new URLSearchParams(location.search).get('owner') || '';
 let currentRelease = {{version_id: null, url: null}};
+let liveUpdates = true;
+let pollTimer;
+let stateRequest = 0;
+let renderedDeals;
+let resetRequestId;
 
 async function api(path, data) {{
   try {{
@@ -754,6 +973,42 @@ function showError(text) {{
   const el = document.getElementById('error-box');
   el.textContent = text; el.classList.add('visible');
   setTimeout(() => el.classList.remove('visible'), 8000);
+}}
+document.getElementById('run-file').addEventListener('change', async event => {{
+  const file = event.target.files[0];
+  if (file) {{
+    try {{
+      document.getElementById('run-json').value = await file.text();
+    }} catch (e) {{
+      document.getElementById('run-status').textContent = 'Could not read the selected file.';
+    }}
+  }}
+}});
+async function submitRun(event) {{
+  event.preventDefault();
+  const status = document.getElementById('run-status');
+  let bundle;
+  try {{ bundle = JSON.parse(document.getElementById('run-json').value); }}
+  catch (e) {{ status.textContent = 'Enter valid run JSON.'; return; }}
+  const result = await api('/api/import-run', bundle);
+  if (!result.data.ok) {{ status.textContent = 'Import failed. ' + result.data.error; return; }}
+  const check = result.data.outbound_result.passed ? 'Outbound check passed.' : 'Outbound check blocked.';
+  status.textContent = 'Imported run. ' + check + (result.data.mismatch
+    ? ' Supplied results differ from the server results.' : '');
+  refresh();
+}}
+async function resetSample(event) {{
+  event.preventDefault();
+  const status = document.getElementById('reset-status');
+  resetRequestId ||= crypto.randomUUID();
+  const result = await api('/api/reset-sample', {{confirm: event.target.elements.confirm.value,
+    request_id: resetRequestId}});
+  if (!result.data.ok) {{ status.textContent = 'Reset refused. ' + result.data.error; return; }}
+  resetRequestId = null;
+  status.textContent = 'Sample data reset. Deals removed: ' + result.data.counts.deals + '.';
+  event.target.reset();
+  hideRelease();
+  refresh();
 }}
 const FIXTURES = {_FIXTURES_JSON};
 function loadFixture(i) {{
@@ -818,9 +1073,15 @@ async function submitIntake(ev) {{
   return false;
 }}
 async function refresh() {{
+  await refreshState(false);
+}}
+async function refreshState(automatic) {{
+  if (automatic && (!liveUpdates || document.hidden)) return;
+  const request = ++stateRequest;
   let st;
   try {{
     const res = await fetch('/api/state', {{headers: {{'X-Owner-Token': OWNER}}}});
+    if (request !== stateRequest) return;
     if (res.status !== 200) {{
       document.getElementById('root').innerHTML =
         '<div class="empty-state"><p>Could not load deals (HTTP ' + res.status +
@@ -829,8 +1090,13 @@ async function refresh() {{
     }}
     st = await res.json();
   }} catch (e) {{
-    showError('Could not load state: ' + e); return;
+    if (request === stateRequest) showError('Could not load state: ' + e);
+    return;
   }}
+  if (request !== stateRequest || (automatic && (!liveUpdates || document.hidden))) return;
+  document.getElementById('inbox').innerHTML = st.inbox.length
+    ? '<ul>' + st.inbox.map(i => `<li><b>${{esc(i.claimed ? 'Claimed' : 'Unclaimed')}}</b> <code>${{esc(i.source_id)}}</code> — ${{esc(i.fields.name_business)}}: ${{esc(i.fields.project_brief)}}</li>`).join('') + '</ul>'
+    : '<p>No inquiries yet.</p>';
   const root = document.getElementById('root');
   const capEl = document.getElementById('capacity');
   if (st.capacity) {{
@@ -842,6 +1108,13 @@ async function refresh() {{
         + `<td>${{w.allocated_hours.toFixed(2)}} h</td><td>${{w.remaining_hours.toFixed(2)}} h</td></tr>`).join('')
       + `</table><p class="small">${{esc(c.note)}}</p>`;
   }}
+  const dealSnapshot = JSON.stringify(st.deals);
+  if (dealSnapshot === renderedDeals) return;
+  if (automatic && root.contains(document.activeElement)
+      && document.activeElement.matches('input, textarea, select')) return;
+  if (automatic && Array.from(root.querySelectorAll('input, textarea'))
+      .some(field => field.value !== field.defaultValue)) return;
+  renderedDeals = dealSnapshot;
   if (!st.deals.length) {{
     root.innerHTML = '<div class="empty-state"><span class="big">·</span>' +
       '<h2>No deals yet</h2><p class="muted">Load a labeled fixture above or fill in the' +
@@ -851,12 +1124,85 @@ async function refresh() {{
   root.classList.remove('empty-state');
   root.innerHTML = st.deals.map(dealHtml).join('');
 }}
+function schedulePolling() {{
+  clearInterval(pollTimer);
+  if (liveUpdates && !document.hidden) pollTimer = setInterval(() => refreshState(true), 4000);
+}}
+const liveButton = document.getElementById('live-updates');
+liveButton.addEventListener('click', () => {{
+  liveUpdates = !liveUpdates;
+  liveButton.textContent = 'Live updates ' + (liveUpdates ? 'on' : 'off');
+  liveButton.setAttribute('aria-pressed', liveUpdates);
+  schedulePolling();
+  if (liveUpdates) refreshState(true);
+}});
+document.getElementById('refresh-state').addEventListener('click', () => refresh());
+document.addEventListener('visibilitychange', () => {{
+  schedulePolling();
+  if (!document.hidden && liveUpdates) refreshState(true);
+}});
 function money(v) {{ return v == null ? '—' : 'S$' + Number(v).toLocaleString('en-SG',
   {{minimumFractionDigits: 2}}); }}
+function hours(value) {{ return Number(value).toFixed(2); }}
 function esc(s) {{ const d = document.createElement('div');
-  d.textContent = s == null ? '' : String(s); return d.innerHTML; }}
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }}
 function statusChip(s) {{
   return '<span class="status-chip ' + esc(s) + '">' + esc(String(s).replace(/_/g,' ')) + '</span>';
+}}
+const STEP_LABELS = {{claimed: 'Claimed', resume: 'Claimed (resume)', intake: 'Intake',
+  scoping: 'Scoping', engine: 'Engine', engine_evaluate: 'Engine (evaluation)',
+  reevaluate: 'Engine (re-evaluation)', draft: 'Draft', edit_draft: 'Draft (edit)',
+  outbound: 'Outbound', outbound_check: 'Outbound (check)', review: 'Review',
+  approve: 'Review (approve)', reject: 'Review (reject)', client_change: 'Client change'}};
+function timelineHtml(steps) {{
+  if (!steps.length) return '';
+  return `<ol class="timeline">${{steps.map(s => {{
+    const start = new Date(s.started_at * 1000).toISOString();
+    const label = STEP_LABELS[s.step_key] || s.step_key.replace(/_/g, ' ');
+    return `<li><b>${{esc(label)}}</b> · ${{esc(s.status)}}
+      <time class="small" datetime="${{start}}">${{start}}</time>
+      ${{s.private_note ? `<div class="small">${{esc(s.private_note)}}</div>` : ''}}</li>`;
+  }}).join('')}}</ol>`;
+}}
+function evidenceText(value) {{
+  return esc(typeof value === 'object' ? JSON.stringify(value) : value);
+}}
+function evidenceTable(rows) {{
+  if (!rows.length) return '';
+  return '<table><thead><tr><th>Field</th><th>Evidence</th></tr></thead><tbody>'
+    + rows.map(([field, value]) => `<tr><th scope="row">${{esc(field)}}</th>
+      <td>${{evidenceText(value)}}</td></tr>`).join('') + '</tbody></table>';
+}}
+function clarificationHtml(value) {{
+  if (!value || (Array.isArray(value) && !value.length)) return '';
+  const text = Array.isArray(value) ? value.map(evidenceText).join('<br>') : evidenceText(value);
+  return `<div class="blocked"><strong>Needs information, not sent</strong><div>${{text}}</div></div>`;
+}}
+function agentOutputHtml(output) {{
+  const p = output.payload;
+  switch (output.kind) {{
+    case 'intake': {{
+      const evidence = p.evidence && typeof p.evidence === 'object' ? p.evidence : p;
+      return '<h4>Intake evidence</h4>' + evidenceTable(Object.entries(evidence))
+        + clarificationHtml(p.clarification);
+    }}
+    case 'scoping':
+      return '<h4>Scoping</h4><p>Comparables: ' + esc(p.comparable_ids.join(', ') || 'None') + '</p>'
+        + evidenceTable(p.scope_profile.map(item =>
+          [item.field, {{value: item.value, evidence: item.evidence}}]))
+        + (p.differences.length ? '<h5>Comparable differences</h5><ul>' + p.differences.map(item =>
+          `<li><b>${{esc(item.project_id)}}</b> · ${{evidenceText(item.fields)}} · ${{esc(item.why)}}
+           <div class="small">${{evidenceText(item.evidence)}}</div></li>`).join('') + '</ul>' : '');
+    case 'negotiator':
+      return '<p><b>Negotiator option IDs</b> ' + esc(p.option_ids.join(', ') || 'None') + '</p>';
+    case 'clarification':
+      return clarificationHtml(p.questions);
+    case 'imported_run':
+      return '<p><b>Imported run</b></p>';
+    default:
+      return '';
+  }}
 }}
 function dealHtml(d) {{
   const offerRows = d.offers.map(o => {{
@@ -876,6 +1222,15 @@ function dealHtml(d) {{
       onclick="doConfirm('${{v.version_id}}')">Confirm booking (sample only)</button>`).join('');
   const closeBtn = d.status === 'confirmed'
     ? `<button onclick="doClose('${{d.deal_id}}')">Close deal</button>` : '';
+  const firstOffer = d.offers[0]?.offer_id;
+  const roundForStep = s => s.offer_id || (['intake', 'resume'].includes(s.step_key) ? firstOffer : null);
+  const rounds = d.offers.map(o => `<section aria-label="Run round ${{o.round}}">
+    <h4>Round ${{o.round}}</h4>
+    ${{timelineHtml(d.steps.filter(s => roundForStep(s) === o.offer_id))}}
+    ${{d.agent_outputs.filter(a => a.offer_id === o.offer_id).map(agentOutputHtml).join('')}}
+    </section>`).join('');
+  const dealActivity = timelineHtml(d.steps.filter(s => !roundForStep(s)))
+    + d.agent_outputs.filter(a => !a.offer_id).map(agentOutputHtml).join('');
   return `<section class="deal" id="deal-${{d.deal_id.slice(0,8)}}">
     <h2>${{esc(d.client)}} ${{statusChip(d.status)}}
       <span class="muted small">${{esc(d.source)}}/${{esc(d.source_id)}}</span></h2>
@@ -887,9 +1242,8 @@ function dealHtml(d) {{
     ${{d.versions.map(v => versionHtml(d, v)).join('')}}
     <div class="ctl">${{confirmBtn}}${{closeBtn}}</div>
     <h3>Run steps</h3>
-    <ol class="timeline">${{d.steps.map(s =>
-      `<li><code>${{esc(s.step_key)}}</code> <b>${{esc(s.status)}}</b><br>
-       <span class="small">${{esc(s.private_note)}}</span></li>`).join('')}}</ol>
+    ${{dealActivity ? '<h4>Deal activity</h4>' + dealActivity : ''}}
+    ${{rounds}}
     <h3>Audit trail (approvals &amp; confirmations)</h3>
     <table><tr><th>action</th><th>note</th><th>digest</th></tr>
     ${{d.approvals.map(a => `<tr><td>${{esc(a.action)}}</td><td>${{esc(a.note)}}</td>
@@ -914,17 +1268,17 @@ function versionHtml(d, v) {{
   const est = v.estimate;
   const estHtml = est ? `
     <table>
-      <tr><th>Base hours</th><td>${{est.base_hours}}</td><th>Buffer</th><td>${{est.buffer_pct}}%</td>
-          <th>Planning hours</th><td><b>${{est.planning_hours}}</b></td></tr>
-      <tr><th>Capacity</th><td>${{est.capacity_hours}}</td><th>List</th><td>${{money(est.list_sgd)}}</td>
+      <tr><th>Base hours</th><td>${{hours(est.base_hours)}}</td><th>Buffer</th><td>${{est.buffer_pct}}%</td>
+          <th>Planning hours</th><td><b>${{hours(est.planning_hours)}}</b></td></tr>
+      <tr><th>Capacity</th><td>${{hours(est.capacity_hours)}}</td><th>List</th><td>${{money(est.list_sgd)}}</td>
           <th>Floor (internal)</th><td><b>${{money(est.floor_sgd)}}</b></td></tr>
-      <tr><th>Effective rate</th><td>S$${{est.effective_rate_sgd}}/h</td>
+      <tr><th>Effective rate</th><td>${{money(est.effective_rate_sgd)}}/h</td>
           <th>Verdict</th><td><b>${{esc(v.verdict)}}</b> ${{esc((v.reason_codes||[]).join(', '))}}</td>
           <th></th><td></td></tr>
     </table>` : '<p class="muted small">Not evaluated yet.</p>';
   const comps = v.comparables ? `
-    <p class="small">Comparables used: ${{v.comparables.used.map(c => c.project_id + ' (' + c.unit_hours.toFixed(2) + ' h/video)').join(', ') || 'none'}}<br>
-    Excluded: ${{v.comparables.excluded.map(c => c.project_id + ':' + c.fields.join('+')).join(', ') || 'none'}}</p>` : '';
+    <p class="small">Comparables used: ${{esc(v.comparables.used.map(c => c.project_id + ' (' + hours(c.unit_hours) + ' h/video)').join(', ') || 'none')}}<br>
+    Excluded: ${{esc(v.comparables.excluded.map(c => c.project_id + ':' + c.fields.join('+')).join(', ') || 'none')}}</p>` : '';
   const meta = {{}};
   (v.option_meta || []).forEach(m => {{ meta[m.option_id] = m; }});
   const optCards = (v.options || []).map(o => {{
@@ -1079,6 +1433,7 @@ async function submitChange(ev, dealId) {{
   return false;
 }}
 refresh();
+schedulePolling();
 </script></body></html>"""
 
 def make_server(db_path, port=0):
@@ -1087,23 +1442,30 @@ def make_server(db_path, port=0):
     Returns (server, owner_token). The owner token is only shown in the
     launching console; it is never logged or written to disk.
     """
-    global DB_PATH, OWNER_TOKEN
-    DB_PATH = Path(db_path)
-    OWNER_TOKEN = secrets.token_urlsafe(24)
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = db.connect(DB_PATH)
-    core.load_seed(conn)
-    conn.close()
+    db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = db.connect(db_path)
+    try:
+        core.load_seed(conn)
+    finally:
+        conn.close()
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    return server, OWNER_TOKEN
+    server.db_path = db_path
+    server.owner_token = secrets.token_urlsafe(24)
+    return server, server.owner_token
 
 
 def main():
-    server, owner_token = make_server(DB_PATH)
-    host, port = server.server_address[:2]
-    print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token} "
-          f"(loopback only, per-launch owner session token shown once here)")
-    server.serve_forever()
+    parser = argparse.ArgumentParser(description="Run the loopback-only BidPilot dashboard.")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--db", type=Path, default=DB_PATH)
+    args = parser.parse_args()
+    server, owner_token = make_server(args.db, args.port)
+    port = server.server_address[1]
+    with server:
+        print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token}",
+              flush=True)
+        server.serve_forever()
 
 
 if __name__ == "__main__":
