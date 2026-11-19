@@ -20,6 +20,7 @@ Run: python3 -B -m unittest -v test_stage11
 """
 import hashlib
 import json
+import math
 import sqlite3
 import tempfile
 import threading
@@ -224,7 +225,7 @@ class Stage11Tests(unittest.TestCase):
         alloc = {a["week"]: a["hours"] for a in conf["allocation"]}
         self.assertEqual(alloc, {"2026-11-27": 18.00, "2026-12-04": 10.80,
                                  "2026-12-11": 21.60, "2026-12-18": 1.92})
-        self.assertEqual(sum(alloc.values()), 52.32)  # not 78.77: one shoot
+        self.assertEqual(math.fsum(alloc.values()), 52.32)  # One shared shoot.
         # exact milestones persisted; week 4 Dec milestone is the first phase
         rows = conn.execute("SELECT week_ending, planning_hundredths, milestone"
                             " FROM allocations ORDER BY week_ending").fetchall()
