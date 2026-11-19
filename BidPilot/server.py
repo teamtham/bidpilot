@@ -687,8 +687,9 @@ def state(conn):
                            "evaluated": evaluated,
                            "offer": db.uj(o["offer_json"]), "as_of": o["as_of"]})
         steps = [dict(r) for r in conn.execute(
-            "SELECT offer_id, step_key, status, private_note, started_at, finished_at"
-            " FROM run_steps WHERE deal_id=? ORDER BY started_at, rowid", (deal["id"],))]
+            "SELECT offer_id, step_key, status, private_note, started_at, finished_at,"
+            ' "trigger" FROM run_steps WHERE deal_id=? ORDER BY started_at, rowid',
+            (deal["id"],))]
         agent_outputs = [{"offer_id": r["offer_id"], "kind": r["kind"],
                           "created_at": r["created_at"], "payload": db.uj(r["payload_json"])}
                          for r in conn.execute(
@@ -848,6 +849,30 @@ form.intake label.wide { grid-column: 1 / -1; }
   font-style: italic; background: var(--accent-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 """
 
+FOUNDER_STYLE = BASE_STYLE + """
+.stage-timeline { list-style: none; margin: 12px 0 24px; padding: 0; display: grid; gap: 10px; }
+.stage { border: 1px solid var(--border); border-left: 4px solid var(--border-strong);
+  border-radius: var(--radius-sm); background: var(--surface); padding: 12px 16px; }
+.stage-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.stage-label { font-weight: 650; }
+.stage-skill { color: var(--muted); }
+.stage-trigger { background: var(--neutral-bg); color: var(--neutral-text);
+  border: 1px solid var(--border-strong); border-radius: 999px; padding: 1px 9px;
+  font-size: 12px; white-space: nowrap; }
+.stage-ok { border-left-color: var(--ok); }
+.stage-blocked { border-left-color: var(--danger); background: var(--danger-bg);
+  border-color: var(--danger-border); }
+.stage-blocked .stage-label { color: var(--danger); }
+.stage-running, .stage-queued { border-left-color: var(--warn); }
+.stage-pending { border-left-color: var(--border-strong); background: var(--neutral-bg); }
+.stage-steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.stage-steps li { font-size: 13.5px; overflow-wrap: anywhere; }
+.stage-steps .status-chip { font-size: 11.5px; padding: 0 8px; }
+.ev-blocked { color: var(--danger); }
+.ev-blocked b { color: var(--danger); }
+.stage-note { overflow-wrap: anywhere; }
+"""
+
 CLIENT_STYLE = BASE_STYLE + """
 p.accepted { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-border);
   border-left: 4px solid var(--ok); padding: 12px 16px; border-radius: var(--radius-sm); font-weight: 600; }
@@ -917,7 +942,7 @@ def founder_page(conn):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BidPilot — founder dashboard (private)</title>
-<style>{BASE_STYLE}</style></head><body>
+<style>{FOUNDER_STYLE}</style></head><body>
 <header><span class="badge">{SAMPLE_BADGE}</span>
  <span class="badge dim">Private founder view — loopback only</span></header>
 <main>
@@ -1227,7 +1252,10 @@ const STEP_LABELS = {{claimed: 'Claimed', resume: 'Claimed (resume)', intake: 'I
   scoping: 'Scoping', engine: 'Engine', engine_evaluate: 'Engine (evaluation)',
   reevaluate: 'Engine (re-evaluation)', draft: 'Draft', edit_draft: 'Draft (edit)',
   outbound: 'Outbound', outbound_check: 'Outbound (check)', review: 'Review',
-  approve: 'Review (approve)', reject: 'Review (reject)', client_change: 'Client change'}};
+  approve: 'Review (approve)', reject: 'Review (reject)', client_change: 'Client change',
+  client_accept: 'Client accepted', capacity_revalidate: 'Capacity revalidated',
+  rotate_token: 'Link reissued', confirm_booking: 'Booking confirmed',
+  close_deal: 'Deal closed'}};
 function timelineHtml(steps) {{
   if (!steps.length) return '';
   return `<ol class="timeline">${{steps.map(s => {{
@@ -1237,6 +1265,94 @@ function timelineHtml(steps) {{
       <time class="small" datetime="${{start}}">${{start}}</time>
       ${{s.private_note ? `<div class="small">${{esc(s.private_note)}}</div>` : ''}}</li>`;
   }}).join('')}}</ol>`;
+}}
+const STAGE_DEFS = [
+  {{key: 'intake', label: 'Intake', skill: 'bidpilot-intake',
+    steps: ['claimed', 'resume', 'intake'], outputs: ['intake']}},
+  {{key: 'scoping', label: 'Scoping', skill: 'bidpilot-scoping',
+    steps: ['scoping'], outputs: ['scoping']}},
+  {{key: 'engine', label: 'Engine evaluation', skill: 'bidpilot-engine',
+    steps: ['engine', 'engine_evaluate', 'reevaluate'], outputs: []}},
+  {{key: 'draft', label: 'Negotiator draft', skill: 'bidpilot-negotiator',
+    steps: ['draft', 'edit_draft'], outputs: ['negotiator']}},
+  {{key: 'outbound', label: 'Outbound check', skill: 'bidpilot-engine outbound gate',
+    steps: ['outbound', 'outbound_check'], outputs: []}},
+  {{key: 'review', label: 'Founder review', skill: 'founder dashboard',
+    steps: ['review', 'approve', 'reject', 'capacity_revalidate', 'rotate_token'],
+    outputs: []}},
+  {{key: 'client', label: 'Client response', skill: 'client page',
+    steps: ['client_change', 'client_accept'], outputs: []}},
+  {{key: 'booking', label: 'Booking', skill: 'founder dashboard',
+    steps: ['confirm_booking', 'close_deal'], outputs: []}}
+];
+// Normalise a raw run-step status to one timeline tone. blocked/error and the
+// capacity_changed guard all read as "blocked" (red); ok/passed read as done.
+function normStatus(s) {{
+  if (s === 'blocked' || s === 'error' || s === 'capacity_changed') return 'blocked';
+  if (s === 'running') return 'running';
+  if (s === 'queued') return 'queued';
+  if (s === 'skipped') return 'skipped';
+  return 'ok';
+}}
+const STAGE_TONE = {{ok: 'approved', running: 'review', queued: 'review',
+  blocked: 'blocked', pending: 'neutral', skipped: 'neutral'}};
+const STAGE_LABEL = {{ok: 'done', running: 'running', queued: 'queued',
+  blocked: 'blocked', pending: 'not started', skipped: 'skipped'}};
+function stageEvents(d, def) {{
+  const events = d.steps.filter(s => def.steps.includes(s.step_key)).map(s => ({{
+    at: s.finished_at || s.started_at,
+    label: STEP_LABELS[s.step_key] || String(s.step_key).replace(/_/g, ' '),
+    status: s.status, note: s.private_note, trigger: s.trigger}}));
+  d.agent_outputs.filter(a => def.outputs.includes(a.kind)).forEach(a => events.push({{
+    at: a.created_at, label: def.skill + ' output saved', status: 'ok',
+    note: null, trigger: null}}));
+  return events.sort((a, b) => (a.at || 0) - (b.at || 0));
+}}
+// Stage state reflects the most recent event, so a stage that was blocked and
+// then cleared reads as done — while the blocked event itself stays red below.
+function stageStatus(events) {{
+  if (!events.length) return 'pending';
+  return normStatus(events[events.length - 1].status);
+}}
+function stageTimelineHtml(d) {{
+  const items = STAGE_DEFS.map(def => {{
+    const events = stageEvents(d, def);
+    const status = stageStatus(events);
+    const last = events[events.length - 1];
+    const blockedCount = events.filter(e => normStatus(e.status) === 'blocked').length;
+    const triggers = Array.from(new Set(events.map(e => e.trigger).filter(Boolean)));
+    const when = last && last.at ? new Date(last.at * 1000).toISOString() : null;
+    const note = last && last.note ? String(last.note).slice(0, 160) : '';
+    const triggerHtml = triggers.length
+      ? `<span class="stage-trigger">${{triggers.map(esc).join(' + ')}} trigger</span>`
+      : '<span class="stage-trigger">trigger not recorded</span>';
+    const blockedBadge = (blockedCount && status !== 'blocked')
+      ? `<span class="status-chip pill-blocked">${{blockedCount}} blocked earlier</span>` : '';
+    const stepsHtml = events.length > 1 ? `<ul class="stage-steps">${{events.map(e => {{
+        const tone = normStatus(e.status);
+        const t = e.at ? new Date(e.at * 1000).toISOString() : '';
+        return `<li class="ev-${{tone}}"><b>${{esc(e.label)}}</b>
+          <span class="status-chip pill-${{STAGE_TONE[tone]}}">${{esc(e.status)}}</span>
+          ${{e.trigger ? '<span class="stage-trigger">' + esc(e.trigger) + '</span>' : ''}}
+          <time class="small" datetime="${{t}}">${{t}}</time>
+          ${{e.note ? `<div class="small stage-note">${{esc(String(e.note).slice(0, 160))}}</div>` : ''}}</li>`;
+      }}).join('')}}</ul>` : '';
+    return `<li class="stage stage-${{status}}" data-stage="${{def.key}}">
+      <div class="stage-head">
+        <span class="stage-label">${{esc(def.label)}}</span>
+        <span class="status-chip pill-${{STAGE_TONE[status]}}">${{esc(STAGE_LABEL[status])}}</span>
+        ${{blockedBadge}}
+        <span class="stage-skill small">${{esc(def.skill)}}</span>
+        ${{triggerHtml}}
+      </div>
+      ${{when ? `<time class="small" datetime="${{when}}">${{when}}</time>`
+              : '<span class="small">no recorded time</span>'}}
+      ${{note ? `<div class="small stage-note">${{esc(note)}}</div>` : ''}}
+      ${{stepsHtml}}
+    </li>`;
+  }}).join('');
+  return `<ol class="stage-timeline" id="stage-timeline-${{d.deal_id.slice(0,8)}}"
+    aria-label="Deal stage timeline">${{items}}</ol>`;
 }}
 function evidenceText(value) {{
   return esc(typeof value === 'object' ? JSON.stringify(value) : value);
@@ -1309,6 +1425,11 @@ function dealHtml(d) {{
       <span class="muted small">${{esc(d.source)}}/${{esc(d.source_id)}}</span></h2>
     <p class="quote">“${{esc(d.raw_inquiry || '')}}”</p>
     ${{queuedHtml}}
+    <h3>Deal timeline</h3>
+    <p class="small">Private founder view: intake → scoping → engine → draft → outbound
+     check → review → client response → booking, built from the run steps and agent
+     outputs. Blocked stages are red.</p>
+    ${{stageTimelineHtml(d)}}
     <h3>Inbound offers &amp; rounds</h3>
     <table><tr><th>Round</th><th>as_of</th><th>Structured offer (engine-validated)</th>
       <th>State</th></tr>${{offerRows}}</table>

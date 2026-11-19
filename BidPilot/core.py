@@ -348,10 +348,17 @@ STEP_KEYS = frozenset(("claimed", "intake", "scoping", "engine", "draft", "outbo
 STEP_STATUSES = frozenset(("running", "ok", "blocked", "error", "skipped"))
 
 
-def record_step(conn, deal_id, offer_id, step_key, status, private_note=None):
-    """Append an agent step in the caller's transaction, closing an open run."""
+def record_step(conn, deal_id, offer_id, step_key, status, private_note=None,
+                trigger=None):
+    """Append an agent step in the caller's transaction, closing an open run.
+
+    trigger is optional and backward compatible: None (unrecorded), "manual"
+    or "scheduled". Older rows and callers keep working unchanged.
+    """
     if step_key not in STEP_KEYS or status not in STEP_STATUSES:
         raise ValueError("invalid_step_key_or_status")
+    if trigger is not None and trigger not in ("manual", "scheduled"):
+        raise ValueError("invalid_trigger")
     if offer_id and not conn.execute("SELECT 1 FROM offers WHERE id=? AND deal_id=?",
                                      (offer_id, deal_id)).fetchone():
         raise ValueError("offer_ownership_mismatch")
@@ -362,9 +369,10 @@ def record_step(conn, deal_id, offer_id, step_key, status, private_note=None):
                      "AND finished_at IS NULL ORDER BY rowid DESC LIMIT 1)",
                      (now, deal_id, offer_id, step_key))
     step_id = db.new_id()
-    conn.execute("INSERT INTO run_steps VALUES (?,?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO run_steps (id, deal_id, offer_id, step_key, status,"
+                 " private_note, started_at, finished_at, trigger) VALUES (?,?,?,?,?,?,?,?,?)",
                  (step_id, deal_id, offer_id, step_key, status, private_note, now,
-                  None if status == "running" else now))
+                  None if status == "running" else now, trigger))
     return step_id
 
 
@@ -807,7 +815,7 @@ def approve(conn, version_id, selected_option_id=None, actor="alex"):
                 (db.new_id(), version_id, actor, "approve_rejected",
                  version["checked_digest"], "; ".join(reasons), now))
             _step(conn, deal["id"], "approve", "error", "; ".join(reasons),
-                  version["offer_id"])
+                  version["offer_id"], trigger="manual")
             conn.commit()
             return {"ok": False, "reasons": reasons}
 
@@ -828,11 +836,11 @@ def approve(conn, version_id, selected_option_id=None, actor="alex"):
         conn.execute("UPDATE deals SET status='published', current_version_id=? WHERE id=?",
                      (version_id, deal["id"]))
         _step(conn, deal["id"], "approve", "ok", "Published version released",
-              version["offer_id"])
+              version["offer_id"], trigger="manual")
         if snapshot_validated:
             _step(conn, deal["id"], "capacity_revalidate", "ok",
                   f"Options revalidated safe against current capacity; snapshot="
-                  f"{snapshot_validated}", version["offer_id"])
+                  f"{snapshot_validated}", version["offer_id"], trigger="manual")
         conn.commit()
     except sqlite3.Error:
         conn.rollback()
@@ -849,7 +857,7 @@ def reject(conn, version_id, note="", actor="alex"):
         (db.new_id(), version_id, actor, "reject", version["checked_digest"], note, now))
     conn.execute("UPDATE proposal_versions SET status='rejected' WHERE id=?", (version_id,))
     _step(conn, version["deal_id"], "reject", "ok", "Rejected; nothing released",
-          version["offer_id"])
+          version["offer_id"], trigger="manual")
     conn.commit()
     return {"ok": True}
 
@@ -943,7 +951,8 @@ def rotate_token(conn, version_id, actor="alex"):
             (db.new_id(), version_id, actor, "rotate_token", version["checked_digest"],
              "Client token reissued; previous token invalidated", now))
         _step(conn, version["deal_id"], "rotate_token", "ok",
-              "Client access token reissued (old token invalidated)", version["offer_id"])
+              "Client access token reissued (old token invalidated)", version["offer_id"],
+              trigger="manual")
         conn.commit()
     except sqlite3.Error:
         conn.rollback()
@@ -1042,7 +1051,7 @@ def confirm_booking(conn, version_id, actor="alex"):
             # the acceptance pending, and point at the next action.
             _step(conn, deal["id"], "confirm_booking", "capacity_changed",
                   "Unsafe against current capacity: re-evaluate the offer before"
-                  " releasing or confirming again", version["offer_id"])
+                  " releasing or confirming again", version["offer_id"], trigger="manual")
             conn.commit()
             return {"ok": False, "reasons": ["capacity_changed", "review_required"],
                     "next_action": "Re-evaluate this offer against current capacity,"
@@ -1089,7 +1098,7 @@ def confirm_booking(conn, version_id, actor="alex"):
              f" at capacity revision {revision}", now))
         _step(conn, deal["id"], "confirm_booking", "ok",
               f"Booking confirmed on option {accepted_option}; reserved"
-              f" {total_cents / 100:.2f} h", version["offer_id"])
+              f" {total_cents / 100:.2f} h", version["offer_id"], trigger="manual")
         conn.commit()
     except sqlite3.Error:
         conn.rollback()
@@ -1120,13 +1129,13 @@ def close_deal(conn, deal_id, actor="alex"):
         (db.new_id(), version["id"] if version else None, actor, "close_deal",
          version["checked_digest"] if version else None,
          "Deal closed (sample booking only; nothing sent)", now))
-    _step(conn, deal_id, "close_deal", "ok", "Deal closed", None)
+    _step(conn, deal_id, "close_deal", "ok", "Deal closed", None, trigger="manual")
     conn.commit()
     return {"ok": True}
 
 
-def _step(conn, deal_id, key, status, note, offer_id=None):
+def _step(conn, deal_id, key, status, note, offer_id=None, trigger=None):
     conn.execute(
         "INSERT INTO run_steps (id, deal_id, offer_id, step_key, status, private_note,"
-        " started_at, finished_at) VALUES (?,?,?,?,?,?,?,?)",
-        (db.new_id(), deal_id, offer_id, key, status, note, db.now(), db.now()))
+        ' started_at, finished_at, "trigger") VALUES (?,?,?,?,?,?,?,?,?)',
+        (db.new_id(), deal_id, offer_id, key, status, note, db.now(), db.now(), trigger))

@@ -14,7 +14,7 @@ The "Page" in the BidPilot skills is the local BidPilot service. Use only these 
 | Read a deal, its current offer and versions | get_deal |
 | Founder-approved history for scoping (private) | get_scoping_history |
 | Save intake / scoping / negotiator / clarification output | save_agent_output with kind "intake" {offer, evidence, missing_fields, clarification}, "scoping" {scope_profile[{field,value,evidence}], comparable_ids[], differences[{project_id,fields,why,evidence}]}, "negotiator" {draft, option_ids[]}, "clarification" {questions[]} |
-| Append a run step | record_step: step_key is one of claimed, intake, scoping, engine, draft, outbound, review, needs_information, stale_version, blocked, error; status is one of running, ok, blocked, error, skipped |
+| Append a run step | record_step: step_key is one of claimed, intake, scoping, engine, draft, outbound, review, needs_information, stale_version, blocked, error; status is one of running, ok, blocked, error, skipped; optional trigger is "manual" or "scheduled" (omit when unknown — it is backward compatible and the founder timeline then shows "trigger not recorded") |
 | Run the Commitment Engine | evaluate_offer(deal_id, offer_id). It returns evaluation_id, verdict, reason_codes, estimate (PRIVATE), options and draft_version |
 | Outward-safe material for the negotiator | negotiation_payload(evaluation_id). Give the negotiator only this and the client's message, never the estimate or history |
 | Save a draft (each save makes a new version) | save_draft(version_id, draft_body, request_id) |

@@ -214,6 +214,38 @@ class MCPTests(unittest.TestCase):
         self.assertNotIn("token_hash", text)
         self.assertNotIn("token", text)
 
+    def test_record_step_optional_trigger_field(self):
+        """trigger is backward compatible: omitted -> None; manual/scheduled
+        persist and surface via run_trace; any other value is rejected."""
+        self.initialize()
+        claim, _evaluation, _version_id = self.full_flow(source_id="trig-1")
+        deal_id, offer_id = claim["deal_id"], claim["offer_id"]
+        # omitted trigger (old callers) still works and stores NULL
+        tool_result(self.client.call_tool("record_step", {
+            "deal_id": deal_id, "offer_id": offer_id, "step_key": "review",
+            "status": "ok", "request_id": "trig-none"}))
+        # explicit manual and scheduled triggers persist
+        tool_result(self.client.call_tool("record_step", {
+            "deal_id": deal_id, "offer_id": offer_id, "step_key": "review",
+            "status": "ok", "trigger": "manual", "request_id": "trig-manual"}))
+        tool_result(self.client.call_tool("record_step", {
+            "deal_id": deal_id, "offer_id": offer_id, "step_key": "review",
+            "status": "ok", "trigger": "scheduled", "request_id": "trig-sched"}))
+        # an unknown trigger value is rejected, not silently stored
+        err = tool_error(self.client.call_tool("record_step", {
+            "deal_id": deal_id, "offer_id": offer_id, "step_key": "review",
+            "status": "ok", "trigger": "cron", "request_id": "trig-bad"}))
+        self.assertIn("invalid_trigger", err)
+        # run_trace returns the trigger column for each step
+        trace = tool_result(self.client.call_tool("run_trace", {"deal_id": deal_id}))
+        review = [s for s in trace["steps"] if s["step_key"] == "review"]
+        triggers = [s.get("trigger") for s in review]
+        self.assertIn(None, triggers)
+        self.assertIn("manual", triggers)
+        self.assertIn("scheduled", triggers)
+        # the rejected call wrote nothing
+        self.assertEqual(len(review), 3)
+
     # -- validation and ownership --------------------------------------------
     def test_invalid_intake_rejected(self):
         self.initialize()

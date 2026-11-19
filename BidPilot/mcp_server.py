@@ -346,7 +346,7 @@ def t_run_trace(args):
         deal = _sample_deal(conn, args["deal_id"])
         steps = conn.execute(
             "SELECT step_key, status, offer_id, private_note, started_at,"
-            " finished_at FROM run_steps WHERE deal_id=? ORDER BY rowid",
+            ' finished_at, "trigger" FROM run_steps WHERE deal_id=? ORDER BY rowid',
             (args["deal_id"],)).fetchall()
         messages = conn.execute(
             "SELECT direction, body, request_id, created_at FROM messages"
@@ -407,7 +407,8 @@ def t_record_step(args):
             _offer_of_deal(conn, args["deal_id"], args["offer_id"])
         try:
             step_id = core.record_step(conn, args["deal_id"], args.get("offer_id"),
-                                       args["step_key"], args["status"], args.get("private_note"))
+                                       args["step_key"], args["status"], args.get("private_note"),
+                                       trigger=args.get("trigger"))
         except ValueError as exc:
             raise ToolError(str(exc))
         return {"step_id": step_id}
@@ -656,7 +657,7 @@ def _schema(name):
     if name == "negotiation_payload":
         return {"evaluation_id": {"type": "string"}}
     schemas = {
-        "record_step": {"deal_id": "string", "offer_id": "string", "step_key": "string", "status": "string", "private_note": "string", "request_id": "string"},
+        "record_step": {"deal_id": "string", "offer_id": "string", "step_key": "string", "status": "string", "private_note": "string", "trigger": "string", "request_id": "string"},
         "save_agent_output": {"deal_id": "string", "offer_id": "string", "kind": "string", "payload": "object", "request_id": "string"},
         "submit_change_offer": {"deal_id": "string", "request_id": "string", "version_id": "string", "offer_request": "object", "evidence": "object"}}
     result = {k: {"type": v} for k, v in schemas.get(name, {}).items()}

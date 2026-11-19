@@ -67,11 +67,14 @@ _MIGRATIONS = [
     # Phase 5: record the authoritative seed snapshot hash per evaluation.
     ("evaluations", "seed_hash", "ALTER TABLE evaluations ADD COLUMN seed_hash TEXT"),
     # Stage 11: capacity snapshot/revision the evaluation ran against.
-    ("evaluations", "capacity_revision", "ALTER TABLE evaluations ADD COLUMN capacity_revision INTEGER"),
+    ("evaluations", "capacity_revision",
+     "ALTER TABLE evaluations ADD COLUMN capacity_revision INTEGER"),
     ("evaluations", "capacity_snapshot_json",
      "ALTER TABLE evaluations ADD COLUMN capacity_snapshot_json TEXT"),
+    # Stage 15: optional manual/scheduled trigger recorded per run step.
+    ("run_steps", "trigger",
+     'ALTER TABLE run_steps ADD COLUMN "trigger" TEXT'),
 ]
-
 
 def _ensure_columns(conn):
     def has_column(table, column):

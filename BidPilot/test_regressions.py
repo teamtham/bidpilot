@@ -49,6 +49,52 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(outcome["passed"], outcome)
         return conn, deal_id, version_id
 
+    # -- stage 15: optional trigger field on run steps ----------------------
+    def test_record_step_trigger_backward_compatible(self):
+        conn = self.conn()
+        core.load_seed(conn)
+        deal_id, offer_id, _ = core.claim_or_resume(
+            conn, "hashmeta", "trig-reg", INQUIRY["offer"]["client"],
+            "raw inquiry one", INQUIRY)
+
+        def last_trigger():
+            return conn.execute('SELECT "trigger" FROM run_steps'
+                                ' ORDER BY rowid DESC LIMIT 1').fetchone()["trigger"]
+
+        # omitted trigger stores NULL — old callers keep working unchanged
+        core.record_step(conn, deal_id, offer_id, "review", "ok")
+        self.assertIsNone(last_trigger())
+        # explicit manual / scheduled triggers persist
+        core.record_step(conn, deal_id, offer_id, "review", "ok", trigger="manual")
+        self.assertEqual(last_trigger(), "manual")
+        core.record_step(conn, deal_id, offer_id, "review", "ok", trigger="scheduled")
+        self.assertEqual(last_trigger(), "scheduled")
+        # an unknown trigger value is rejected, not silently stored
+        with self.assertRaises(ValueError):
+            core.record_step(conn, deal_id, offer_id, "review", "ok", trigger="cron")
+        conn.close()
+
+    def test_trigger_column_added_to_legacy_run_steps(self):
+        # A DB whose run_steps predates the trigger column gains it on connect,
+        # preserving existing rows (NULL trigger).
+        legacy = str(Path(self.tmp) / "legacy.db")
+        raw = sqlite3.connect(legacy)
+        raw.execute("CREATE TABLE run_steps (id TEXT PRIMARY KEY, deal_id TEXT,"
+                    " offer_id TEXT, step_key TEXT, status TEXT, private_note TEXT,"
+                    " started_at REAL, finished_at REAL)")
+        raw.execute("INSERT INTO run_steps VALUES"
+                    " ('s1','d1',NULL,'intake','ok',NULL,1.0,1.0)")
+        raw.commit()
+        raw.close()
+        conn = db.connect(legacy)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(run_steps)")]
+        self.assertIn("trigger", cols)
+        row = conn.execute('SELECT step_key, "trigger" FROM run_steps'
+                           ' WHERE id="s1"').fetchone()
+        self.assertEqual(row["step_key"], "intake")
+        self.assertIsNone(row["trigger"])
+        conn.close()
+
     # -- regression 1: duplicate intake -----------------------------------
     def test_duplicate_intake_single_offer_and_preserved_input(self):
         conn = self.conn()
