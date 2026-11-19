@@ -20,7 +20,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    HAVE_PLAYWRIGHT = False
+else:
+    HAVE_PLAYWRIGHT = True
 
 import server
 
@@ -55,6 +60,7 @@ def request(base, method, path, data=None, headers=None):
         return err.code, err.read().decode()
 
 
+@unittest.skipUnless(HAVE_PLAYWRIGHT, "pip install playwright")
 class Stage9BrowserTests(unittest.TestCase):
     srv = None
     owner = None
