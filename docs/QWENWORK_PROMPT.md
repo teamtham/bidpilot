@@ -4,7 +4,7 @@ This file has three parts:
 
 1. **Before you paste** — things you do by hand first (about 10 minutes).
 2. **The prompt** — paste it into a new QwenWork desktop task, in stages.
-3. **Your manual steps, Hashmeta, and known gaps.**
+3. **Your manual steps, and known gaps.** QwenWork builds the Hashmeta website too (Stage D). You only connect Hashmeta and approve publishing.
 
 Checked against the repository on 19 Nov 2026. The MCP tool names below come from PR #2 (the stages 12–15 branch). All 98 Python tests and the 16-step `demo_smoke.py` replay pass on that branch.
 
@@ -129,12 +129,29 @@ Create a QwenWork desktop Scheduled Task "BidPilot · Poll new inquiries", in As
 Before enabling the schedule, submit one more synthetic quote at http://127.0.0.1:8765/quote (I will do it, client "Northwind Bakery", any small valid promo) and use Run Now. Show the run log and the deal it created, and confirm a second Run Now does nothing ("No new inquiries."). Then enable the schedule. Tell me which connector and date were actually used. Remind me to turn the timer off after recording.
 ```
 
-### Stage D: Hashmeta connector and case study (only once Hashmeta is connected)
+### Stage D: Hashmeta — connect, build the Alex Studio website, case study
+
+You add the Hashmeta connector by hand first (see "Things you do by hand"). QwenWork does the rest. Paste D1 and D2 together, any time after Stage A (the demo starts on this site, so finish it before recording). Paste D3 only after the phased booking is confirmed in Stage B.
 
 ```text
-1. Inspect the "Hashmeta AI" connector. Show the exact tools and input fields for: reading recent CRM form leads, creating or updating a draft page, and publishing a page. Read the newest synthetic lead from the Alex Studio project and return only its source ID and field names, without changing anything. If a tool is missing or authorization fails, say exactly what is unavailable.
+D1. Connector probe. Inspect the "Hashmeta AI" connector. List every tool with its exact name and input fields, grouped as: (a) create or update a site or page, (b) forms and CRM (create a form, map it to CRM leads, read leads), (c) preview and publish. Read the newest lead in the Alex Studio project, if any, and return only its source ID and field names, without changing anything. If a group has no tool or authorization fails, say exactly what is unavailable. Don't guess tool names.
 
-2. After the phased booking is confirmed in the founder dashboard: using the Hashmeta connector, draft a public case-study page in Alex Studio at /case-studies/a-cafe-launch titled "How a cafe launch was scoped for phased delivery". This is a clearly labeled sample booking story, so claim neither finished production nor real client results. Explain the launch goal and the approved split as "launch batch" and "follow-up batch". Keep all prices, rates, dates, counts, private capacity and other client names out. Refer to the customer only as "a cafe". Keep it as a private draft and show me a preview. Publish only after I confirm, then return the public URL.
+D2. Build the Alex Studio website in Hashmeta AI (it is judged, so make it good). Use the best route that actually works, in this order, and tell me which one you used:
+  Route 1: the Hashmeta connector's site or page tools from D1.
+  Route 2: if the connector can't create pages but can start an AI Development task, start one with the brief below.
+  Route 3: if neither works, use the QwenWork Browser connector in my signed-in Chrome. Open Hashmeta AI → AI CMS → AI Development → New Task, paste the brief below, submit it and follow it to the preview. Stop and ask me if a login, captcha or payment screen appears.
+
+Brief for every route:
+"Build a public-facing sample website for Alex Studio, a solo digital video production business in Singapore. Pages: Home (hero with a one-line promise about honest, deliverable quotes; services overview; how quoting works in three steps: request, tailored proposal, confirmed booking), Services (product promos, social reels, edit-only packages; no prices), Portfolio (placeholder tiles marked 'Illustrative sample'), Case Studies (empty list, ready for a first story), About, and Request a quote. Calm editorial layout, generous whitespace, one accent colour, readable on mobile, accessible labels and contrast. Footer badge: 'Sample data · 23 Nov 2026 · Asia/Singapore'.
+Request a quote form, made a new-lead source in the Alex Studio CRM if the project supports it, with readable labels for: name or business, reply email, project brief, video format, edit-only or on-location production, number of shoot days, locations, interviewees, scripting (none/light/full), number of videos, editing complexity, graphics type, revision rounds, captioned video count, a visible 'Caption every deliverable' checkbox, delivery deadline, SGD budget, and a free-text field for travel, kit or talent needs. Preset the sample visibly to standard editing, basic titles, light scripting, two revisions, no interviewees, one shoot day and one location. Never show business rules, rates, price floor or capacity. On submit show a receipt with no price or timing promise. Keep everything as an unpublished draft for review."
+
+After building:
+  - Show me the preview link and a screenshot of each page at desktop and phone width. Fix any broken layout, placeholder lorem ipsum, or missing form field yourself, then show me again.
+  - Test the form with one synthetic lead (client "Test Lead", sample@example.com). Confirm it appears in the CRM with a stable lead ID and show which fields came through. If the CRM only stores a message body, change the form so the offer fields go into that body as labelled lines and keep the lead ID.
+  - If form-to-CRM or lead readback can't be made to work, change the "Request a quote" button to link to http://127.0.0.1:8765/quote (the BidPilot quote form on this Mac) and tell me you did.
+  - Don't publish. When I reply "publish the site", publish exactly the previewed draft and return the public URL, checked in a signed-out tab.
+
+D3. After the phased booking is confirmed in the founder dashboard: using the same route as D2, draft a public case-study page in Alex Studio at /case-studies/a-cafe-launch titled "How a cafe launch was scoped for phased delivery", and link it from the Case Studies list. This is a clearly labeled sample booking story, so claim neither finished production nor real client results. Explain the launch goal and the approved split as "launch batch" and "follow-up batch". Keep all prices, rates, dates, counts, private capacity and other client names out. Refer to the customer only as "a cafe". Keep it as a private draft and show me a preview. Publish only after I confirm, then return the public URL.
 ```
 
 ### Stage E: the unguarded opener for the video (0:00–0:18)
@@ -153,8 +170,8 @@ Record the reply and label it "unsafe: no checks". This is the "before" shot in 
 
 ### Things you do by hand
 
-- **In Hashmeta AI (website, 15% of the score).** Go to AI CMS → AI Development → New Task and paste the website brief from BUILD_GUIDE §6 ("Build a public-facing sample website for Alex Studio…"). Check that the "Request a quote" form creates a CRM lead with a stable ID. If form-to-CRM readback doesn't work, point the site's "Request a quote" button at `http://127.0.0.1:8765/quote`. That only works on your Mac, which is fine for the recording. Preview and publish the site after review.
-- **Connect Hashmeta to QwenWork.** In Hashmeta **Settings**, copy the MCP URL. In QwenWork go to **Extensions → Connectors → + Add → Fill in manually**, name it `Hashmeta AI`, choose Streamable HTTP or SSE, paste the URL and the auth it asks for. Then run Stage D step 1. Keep tokens out of screenshots.
+- **Connect Hashmeta to QwenWork (before Stage D).** Sign in to Hashmeta AI and open the hackathon project. In **Settings**, copy the MCP URL. In QwenWork go to **Extensions → Connectors → + Add → Fill in manually**, name it `Hashmeta AI`, choose Streamable HTTP or SSE, paste the URL and the auth it asks for, enable it, and open a new task. Keep tokens out of screenshots. If Stage D falls back to the browser route, also enable QwenWork's Browser connector and be signed in to Hashmeta in Chrome.
+- **Website: review and say "publish the site".** QwenWork builds the whole site in Stage D. You only look at the preview and screenshots, ask for changes, and give the go-ahead to publish. Publishing is public, so QwenWork waits for you. If a login, captcha or billing screen appears on the browser route, you clear it.
 - **Founder actions in the dashboard (owner URL).** Approve, Reject, Edit, Confirm booking, and Reset sample data (type `RESET SAMPLE DATA`) before each take.
 - **Client actions in a signed-out window.** Submit the quote form, open `/p/<token>`, Request change, and pick "phased".
 - **Recording.** Record at 1920×1080 and keep it under 3 minutes, following the BUILD_GUIDE §7 script. The rules say the demo video must be generated with QwenWork. Check whether QwenWork has a video or screen-recording feature you can use for the final cut. Otherwise record the QwenWork screens and say so in the submission. Then upload to YouTube and submit the title, one-line description and description by 23 Nov 23:59 SGT.
@@ -166,4 +183,5 @@ Record the reply and label it "unsafe: no checks". This is the "before" shot in 
 3. **No deal for an incomplete inquiry.** `claim_intake` rejects an offer with missing fields, so a "needs information" run can't be stored in BidPilot. QwenWork reports the clarification in its own task instead. This doesn't affect the demo path.
 4. **Skills still say "Page".** They are installed verbatim, and the new `bidpilot-runtime` skill maps "Page" to the MCP tools. If you would rather edit the four skill files, that's a small text change.
 5. **Scheduled task only runs on your Mac.** The bidpilot connector is local stdio, so a cloud scheduled task can't reach it. Keep the Mac awake and the server running while recording.
-6. **Hashmeta lead → BidPilot.** BidPilot has no Hashmeta-specific tool. QwenWork reads the lead with the Hashmeta connector and passes it to `claim_intake` with source `hashmeta`. This depends on the Hashmeta connector exposing a CRM-read tool (unverified).
+6. **Hashmeta website tools are unverified.** No one has listed the Hashmeta connector's tools yet, so it's unknown whether QwenWork can create pages and forms through it. Stage D tries the connector first, then a Hashmeta AI Development task, then the browser. The browser route needs your signed-in Chrome and may stop at a login screen.
+7. **Hashmeta lead → BidPilot.** BidPilot has no Hashmeta-specific tool. QwenWork reads the lead with the Hashmeta connector and passes it to `claim_intake` with source `hashmeta`. This depends on the Hashmeta connector exposing a CRM-read tool (unverified).
