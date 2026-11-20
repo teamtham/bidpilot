@@ -130,19 +130,31 @@ class Phase5Tests(unittest.TestCase):
 
     # -- 1: intake, validation, idempotent evaluate -------------------------
     def test_intake_validation_and_idempotent_evaluate(self):
-        # missing budget -> engine validation, 400, nothing fabricated
+        # missing budget -> incomplete intake persists as needs_information;
+        # nothing is fabricated, no offer is created, and the missing field path
+        # is recorded so it can be supplied later (C5 behavior).
         bad = json.loads(json.dumps(INQUIRY))
         del bad["offer"]["budget_sgd"]
         status, text = self.post("/api/import", {
             "source": "hashmeta", "source_id": "p5-invalid-1",
             "raw_inquiry": "x", "offer_request": bad})
-        self.assertEqual(status, 400)
-        self.assertIn("engine_validation_failed", text)
-        self.assertIn("MISSING_FIELD:offer.budget_sgd", text)
+        self.assertEqual(status, 200)
+        res = json.loads(text)
+        self.assertTrue(res["ok"])
+        self.assertIsNone(res["offer_id"])
         with self.db() as conn:
+            deal = conn.execute(
+                "SELECT id, status FROM deals WHERE source_id='p5-invalid-1'").fetchone()
+            self.assertIsNotNone(deal)
+            self.assertEqual(deal["status"], "needs_information")
             self.assertEqual(conn.execute(
-                "SELECT COUNT(*) FROM deals WHERE source_id='p5-invalid-1'"
-            ).fetchone()[0], 0)
+                "SELECT COUNT(*) FROM offers WHERE deal_id=?", (deal["id"],)).fetchone()[0], 0)
+            note = conn.execute(
+                "SELECT private_note FROM run_steps WHERE deal_id=? AND"
+                " step_key='needs_information' ORDER BY rowid DESC LIMIT 1",
+                (deal["id"],)).fetchone()
+            self.assertIn("offer.budget_sgd",
+                          json.loads(note["private_note"])["missing_fields"])
 
         imp = self.import_inquiry("p5-e2e-1")
         self.assertTrue(imp["fresh"])

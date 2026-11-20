@@ -141,6 +141,24 @@ def t_claim_intake(args):
             result = {"deal_id": deal_id, "offer_id": offer_id, "created": created,
                       "note": "Duplicate (source, source_id) resumes the same deal and"
                               " reuses its first offer; raw evidence is preserved."}
+            if offer_id is None:
+                # Incomplete intake persisted as needs_information (no offer, no
+                # fabricated defaults). Surface the missing field paths so the
+                # QwenWork skill can ask for them and resume later.
+                step = conn.execute(
+                    "SELECT private_note FROM run_steps WHERE deal_id=? AND"
+                    " step_key='needs_information' ORDER BY rowid DESC LIMIT 1",
+                    (deal_id,)).fetchone()
+                try:
+                    missing = db.uj(step["private_note"]).get("missing_fields", []) if step else []
+                except (ValueError, TypeError, AttributeError):
+                    missing = []
+                result["status"] = "needs_information"
+                result["missing_fields"] = missing
+                result["note"] = ("Incomplete intake persisted as needs_information; no"
+                                  " default values were fabricated. Supply the missing"
+                                  " fields, then call claim_intake again with the same"
+                                  " (source, source_id) to resume this deal.")
             if request_id is not None:
                 conn.execute(
                     "INSERT INTO mcp_operations "
@@ -490,8 +508,22 @@ def t_list_pending_work(args):
             "FROM offers o JOIN deals d ON d.id=o.deal_id "
             "WHERE d.sample_data=1 AND o.source LIKE 'change:%' AND NOT EXISTS "
             "(SELECT 1 FROM evaluations e WHERE e.offer_id=o.id) ORDER BY o.rowid")]
+        needs_info = []
+        for r in conn.execute(
+                "SELECT d.id AS deal_id, d.source, d.source_id, d.client, d.raw_inquiry,"
+                " (SELECT private_note FROM run_steps s WHERE s.deal_id=d.id"
+                "  AND s.step_key='needs_information' ORDER BY s.rowid DESC LIMIT 1) AS note"
+                " FROM deals d WHERE d.sample_data=1 AND d.status='needs_information'"
+                " ORDER BY d.created_at").fetchall():
+            try:
+                missing = db.uj(r["note"]).get("missing_fields", []) if r["note"] else []
+            except (ValueError, TypeError, AttributeError):
+                missing = []
+            needs_info.append({"deal_id": r["deal_id"], "source": r["source"],
+                               "source_id": r["source_id"], "client": r["client"],
+                               "raw_inquiry": r["raw_inquiry"], "missing_fields": missing})
         return {"inquiries": inquiries, "change_requests": changes,
-                "unevaluated_offers": unevaluated}
+                "unevaluated_offers": unevaluated, "needs_information": needs_info}
     finally:
         conn.close()
 

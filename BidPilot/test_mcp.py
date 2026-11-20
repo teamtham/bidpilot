@@ -262,6 +262,39 @@ class MCPTests(unittest.TestCase):
             "source": "hashmeta", "source_id": "bad-2"}))
         self.assertIn("missing_field", err)
 
+    def test_incomplete_intake_needs_information_and_resume(self):
+        """C5: an incomplete offer persists as needs_information (no fabricated
+        defaults, no offer), surfaces via list_pending_work, and a retry with the
+        same (source, source_id) resumes the same deal once completed."""
+        self.initialize()
+        inc = json.loads(json.dumps(INQUIRY))
+        inc["offer"]["budget_sgd"] = None
+        first = tool_result(self.client.call_tool("claim_intake", {
+            "source": "hashmeta", "source_id": "ni-mcp-1",
+            "client": INQUIRY["offer"]["client"], "raw_inquiry": "raw",
+            "offer_request": inc}))
+        self.assertIsNone(first["offer_id"])
+        self.assertEqual(first["status"], "needs_information")
+        self.assertIn("offer.budget_sgd", first["missing_fields"])
+        # it is discoverable as pending work needing information
+        pending = tool_result(self.client.call_tool("list_pending_work", {}))
+        ni = [x for x in pending["needs_information"] if x["source_id"] == "ni-mcp-1"]
+        self.assertEqual(len(ni), 1)
+        self.assertIn("offer.budget_sgd", ni[0]["missing_fields"])
+        # it is NOT also listed as a fresh unclaimed inquiry (a deal exists)
+        self.assertNotIn("ni-mcp-1", [x["source_id"] for x in pending["inquiries"]])
+        # retry with the missing value supplied resumes the SAME deal
+        resumed = tool_result(self.client.call_tool("claim_intake", {
+            "source": "hashmeta", "source_id": "ni-mcp-1",
+            "client": INQUIRY["offer"]["client"], "raw_inquiry": "raw",
+            "offer_request": INQUIRY}))
+        self.assertEqual(resumed["deal_id"], first["deal_id"])
+        self.assertIsNotNone(resumed["offer_id"])
+        self.assertNotIn("status", resumed)  # no longer needs_information
+        # and it dropped off the needs_information list
+        pending2 = tool_result(self.client.call_tool("list_pending_work", {}))
+        self.assertNotIn("ni-mcp-1", [x["source_id"] for x in pending2["needs_information"]])
+
     def test_disallowed_source_rejected(self):
         self.initialize()
         err = tool_error(self.client.call_tool("claim_intake", {
