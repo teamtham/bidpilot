@@ -122,9 +122,32 @@ def validate_offer_request(offer_request):
     return [tuple(e) for e in engine.validation_errors(offer_request)]
 
 
+def _insert_intake_offer(conn, deal_id, source, source_id, offer_request, now):
+    """Insert the first intake offer for a deal in the caller's transaction."""
+    offer_id = db.new_id()
+    round_no = 1 + (conn.execute(
+        "SELECT COALESCE(MAX(round),0) AS r FROM offers WHERE deal_id=?", (deal_id,)
+    ).fetchone()["r"])
+    conn.execute(
+        "INSERT INTO offers (id, deal_id, source, source_id, from_version_id, round, as_of,"
+        " offer_json, evidence_json, comparable_ids_json, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (offer_id, deal_id, source, source_id, None, round_no,
+         offer_request.get("as_of"), j(offer_request.get("offer")),
+         j(offer_request), j(offer_request.get("comparable_ids", [])), now))
+    return offer_id
+
+
 def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
                     require_sample=False, commit=True):
     """Unique (source, source_id): a duplicate import resumes the same deal.
+
+    An incomplete intake (engine reports only MISSING_FIELD) is never rejected
+    and never fabricated: it persists as a deal in status "needs_information"
+    that records the missing field paths, with no offer. A later claim with the
+    same (source, source_id) resumes that deal and, once the missing values are
+    supplied, creates the offer and advances to "new". Invalid values
+    (INVALID_FIELD) are still rejected. Complete-intake behavior is unchanged.
 
     With require_sample=True (MCP bridge), a write transaction is opened
     BEFORE any read that decides writes, and a colliding non-sample deal is
@@ -138,17 +161,42 @@ def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
     row = conn.execute("SELECT * FROM deals WHERE source=? AND source_id=?",
                        (source, source_id)).fetchone()
     now = db.now()
+    errors = validate_offer_request(offer_request)
+    incomplete = bool(errors) and all(code == "MISSING_FIELD" for code, _ in errors)
+    missing_fields = [field for _code, field in errors]
     if row:
         if require_sample and not row["sample_data"]:
             conn.rollback()
             raise ValueError("non_sample_record_rejected: MCP tools accept sample data only")
         deal_id = row["id"]
+        has_offer = conn.execute("SELECT 1 FROM offers WHERE source=? AND source_id=?",
+                                 (source, source_id)).fetchone() is not None
+        if row["status"] == "needs_information" and not has_offer:
+            # Resuming an incomplete intake; the missing info may now be supplied.
+            if incomplete:
+                _step(conn, deal_id, "needs_information", "queued",
+                      j({"missing_fields": missing_fields}))
+                if commit:
+                    conn.commit()
+                return deal_id, None, False
+            if errors:
+                conn.rollback()
+                raise ValueError("engine_validation_failed: " + "; ".join(
+                    f"{code}:{field}" for code, field in errors))
+            _step(conn, deal_id, "intake", "ok",
+                  "Missing information supplied; intake complete")
+            conn.execute("UPDATE deals SET status='new' WHERE id=?"
+                         " AND status='needs_information'", (deal_id,))
+            offer_id = _insert_intake_offer(conn, deal_id, source, source_id,
+                                            offer_request, now)
+            if commit:
+                conn.commit()
+            return deal_id, offer_id, False
         # Duplicate intake resumes the deal; history (raw_inquiry, client) is
         # never overwritten by a later copy of the same inbound message.
         _step(conn, deal_id, "resume", "ok", f"Duplicate inbound {source}/{source_id} resumed deal")
     else:
-        errors = validate_offer_request(offer_request)
-        if errors:
+        if errors and not incomplete:
             conn.rollback()
             raise ValueError("engine_validation_failed: " + "; ".join(
                 f"{code}:{field}" for code, field in errors))
@@ -156,7 +204,14 @@ def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
         conn.execute(
             "INSERT INTO deals (id, source, source_id, client, raw_inquiry, status,"
             " current_version_id, sample_data, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (deal_id, source, source_id, client, raw_inquiry, "new", None, 1, now))
+            (deal_id, source, source_id, client, raw_inquiry,
+             "needs_information" if incomplete else "new", None, 1, now))
+        if incomplete:
+            _step(conn, deal_id, "needs_information", "queued",
+                  j({"missing_fields": missing_fields}))
+            if commit:
+                conn.commit()
+            return deal_id, None, True
         _step(conn, deal_id, "intake", "ok", "Inbound message claimed")
     if commit:
         conn.commit()
@@ -167,17 +222,7 @@ def claim_or_resume(conn, source, source_id, client, raw_inquiry, offer_request,
                              (source, source_id)).fetchone()
     if offer_row:
         return deal_id, offer_row["id"], False
-    offer_id = db.new_id()
-    round_no = 1 + (conn.execute(
-        "SELECT COALESCE(MAX(round),0) AS r FROM offers WHERE deal_id=?", (deal_id,)
-    ).fetchone()["r"])
-    conn.execute(
-        "INSERT INTO offers (id, deal_id, source, source_id, from_version_id, round, as_of,"
-        " offer_json, evidence_json, comparable_ids_json, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (offer_id, deal_id, source, source_id, None, round_no,
-         offer_request.get("as_of"), j(offer_request.get("offer")),
-         j(offer_request), j(offer_request.get("comparable_ids", [])), now))
+    offer_id = _insert_intake_offer(conn, deal_id, source, source_id, offer_request, now)
     if commit:
         conn.commit()
     return deal_id, offer_id, True

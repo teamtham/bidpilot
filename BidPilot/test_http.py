@@ -242,6 +242,25 @@ class HttpTests(unittest.TestCase):
                        "Inbound message claimed"):
             self.assertNotIn(banned, html)
 
+    # -- C5: what-changed comparison + needs-info (founder-only) -------------
+    def test_founder_dashboard_serves_what_changed_and_needs_info(self):
+        status, html = self.get("/")
+        self.assertEqual(status, 200)
+        for marker in ("whatChangedHtml", "What changed", "reasonLinkHtml",
+                       "reason-links", "needs-info", "Needs info",
+                       "diff-old", "diff-new", "needs_information"):
+            self.assertIn(marker, html)
+
+    def test_client_page_never_exposes_comparison_or_needs_info(self):
+        f = self.flow("cmp-iso-1")
+        status, html = request(self.base, "GET", f["url"], None, {})
+        self.assertEqual(status, 200)
+        for banned in ("whatChangedHtml", "What changed", "reasonLinkHtml",
+                       "reason-links", "needs-info", "Needs info", "diff-old",
+                       "diff-new", "changed_fields", "CAPACITY_SHORTFALL",
+                       "BELOW_FLOOR", "planning_hours", "capacity_hours", "floor"):
+            self.assertNotIn(banned, html)
+
     # -- unsafe draft ----------------------------------------------------------
     def test_unsafe_draft_blocked(self):
         imp = self.import_inquiry("unsafe-1")

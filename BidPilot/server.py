@@ -630,15 +630,68 @@ def capacity_panel(conn):
                     " pending client acceptances reserve nothing."}
 
 
+# Founder-only "What changed": diff a revised offer against its prior round.
+# Scope drivers the comparison surfaces explicitly (other offer keys are still
+# diffed generically). Values are never fabricated; absent legacy evidence is
+# reported as None so the UI can say "not recorded".
+SCOPE_DRIVER_FIELDS = ("deliverables", "caption_versions", "deadline", "budget_sgd",
+                       "shoot_days", "locations", "interviewees", "scripting",
+                       "editing_level", "graphics", "revision_rounds", "format",
+                       "production_mode", "direct_costs_sgd")
+
+
+def _offer_comparison(offer_map, version_offer, v):
+    """Return the founder-only comparison for one proposal version.
+
+    Links the version's offer to the prior round (via from_version_id, else the
+    highest lower round) and lists the actual changed offer fields old -> new.
+    Handles absent legacy evidence (no prior offer, missing/null fields) without
+    fabricating values.
+    """
+    cur = offer_map.get(v["offer_id"])
+    if not cur:
+        return {"is_revision": False, "prior_round": None, "prior_offer_id": None,
+                "changed_fields": [], "offer": {}}
+    cur_offer = cur.get("offer") or {}
+    prior_id = None
+    from_version = cur.get("from_version_id")
+    if from_version and from_version in version_offer:
+        prior_id = version_offer[from_version]
+    if prior_id is None and cur.get("round") and cur["round"] > 1:
+        lower = [o for o in offer_map.values()
+                 if o.get("round") and o["round"] < cur["round"]]
+        if lower:
+            prior_id = max(lower, key=lambda o: o["round"])["offer_id"]
+    prior = offer_map.get(prior_id) if prior_id else None
+    if not prior:
+        return {"is_revision": False, "prior_round": None, "prior_offer_id": None,
+                "changed_fields": [], "offer": cur_offer}
+    prior_offer = prior.get("offer") or {}
+    # Known scope drivers first (stable order), then any other changed keys.
+    keys = [k for k in SCOPE_DRIVER_FIELDS if k in prior_offer or k in cur_offer]
+    keys += sorted(k for k in (set(prior_offer) | set(cur_offer)) if k not in keys)
+    changed = [{"field": k, "old": prior_offer.get(k), "new": cur_offer.get(k)}
+               for k in keys if prior_offer.get(k) != cur_offer.get(k)]
+    return {"is_revision": True, "prior_round": prior.get("round"),
+            "prior_offer_id": prior_id, "changed_fields": changed, "offer": cur_offer}
+
+
 def state(conn):
     panel = capacity_panel(conn)
     current_revision = panel["revision"]
     deals = []
     for deal in conn.execute("SELECT * FROM deals ORDER BY created_at").fetchall():
+        offer_rows = conn.execute("SELECT * FROM offers WHERE deal_id=? ORDER BY round",
+                                  (deal["id"],)).fetchall()
+        offer_map = {o["id"]: {"offer_id": o["id"], "round": o["round"],
+                               "from_version_id": o["from_version_id"],
+                               "offer": db.uj(o["offer_json"]) or {}} for o in offer_rows}
+        version_rows = conn.execute(
+            "SELECT * FROM proposal_versions WHERE deal_id=? ORDER BY version_no",
+            (deal["id"],)).fetchall()
+        version_offer = {v["id"]: v["offer_id"] for v in version_rows}
         versions = []
-        for v in conn.execute(
-                "SELECT * FROM proposal_versions WHERE deal_id=? ORDER BY version_no",
-                (deal["id"],)).fetchall():
+        for v in version_rows:
             eval_row = conn.execute("SELECT * FROM evaluations WHERE offer_id=?",
                                     (v["offer_id"],)).fetchone()
             result = db.uj(eval_row["result_json"]) if eval_row else None
@@ -677,6 +730,7 @@ def state(conn):
                 "comparables": (result or {}).get("comparables"),
                 "option_metrics": (result or {}).get("option_metrics"),
                 "capacity_stale": capacity_stale,
+                "comparison": _offer_comparison(offer_map, version_offer, v),
             })
         offers = []
         for o in conn.execute("SELECT * FROM offers WHERE deal_id=? ORDER BY round",
@@ -702,14 +756,23 @@ def state(conn):
             "SELECT action, note, reviewed_digest, decided_at FROM approvals a"
             " JOIN proposal_versions v ON v.id=a.version_id WHERE v.deal_id=?"
             " ORDER BY decided_at", (deal["id"],)).fetchall()]
-        queued = [s for s in steps if s["status"] == "queued"]
+        queued = [s for s in steps if s["status"] == "queued"
+                  and s["step_key"] != "needs_information"]
+        needs_info = None
+        if deal["status"] == "needs_information":
+            ni = [s for s in steps if s["step_key"] == "needs_information"]
+            if ni:
+                try:
+                    needs_info = db.uj(ni[-1]["private_note"])
+                except (ValueError, TypeError):
+                    needs_info = None
         deals.append({"deal_id": deal["id"], "source": deal["source"],
                       "source_id": deal["source_id"], "client": deal["client"],
                       "status": deal["status"], "raw_inquiry": deal["raw_inquiry"],
                       "versions": versions, "offers": offers,
                       "steps": steps, "agent_outputs": agent_outputs,
                       "messages": messages, "approvals": approvals,
-                      "queued_clarifications": queued})
+                      "queued_clarifications": queued, "needs_information": needs_info})
     inbox = [{"source_id": r["source_id"], "fields": db.uj(r["fields_json"]),
               "received_at": r["received_at"], "claimed": bool(r["deal_id"])}
              for r in conn.execute("SELECT i.*, d.id AS deal_id FROM inbox i LEFT JOIN deals d ON d.source=i.source AND d.source_id=i.source_id ORDER BY i.received_at DESC").fetchall()]
@@ -871,6 +934,19 @@ FOUNDER_STYLE = BASE_STYLE + """
 .ev-blocked { color: var(--danger); }
 .ev-blocked b { color: var(--danger); }
 .stage-note { overflow-wrap: anywhere; }
+.what-changed { border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: var(--radius-sm); background: var(--accent-soft); padding: 12px 16px; margin: 12px 0; }
+.what-changed h4 { margin: 0 0 6px; }
+table.diff { width: 100%; border-collapse: collapse; margin: 6px 0; }
+table.diff th, table.diff td { text-align: left; padding: 4px 8px;
+  border-bottom: 1px solid var(--border); font-size: 13.5px; vertical-align: top; }
+table.diff .diff-old { color: var(--danger); }
+table.diff .diff-new { color: var(--ok); font-weight: 650; }
+.reason-links { margin: 8px 0 0; padding-left: 20px; }
+.reason-links li { font-size: 13.5px; margin-bottom: 4px; overflow-wrap: anywhere; }
+.needs-info { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-border);
+  border-left: 4px solid var(--warn); padding: 12px 16px; border-radius: var(--radius-sm); margin: 12px 0; }
+.needs-info code { background: rgba(255,255,255,.65); color: var(--warn); }
 """
 
 CLIENT_STYLE = BASE_STYLE + """
@@ -1242,13 +1318,17 @@ function esc(s) {{ const d = document.createElement('div');
   d.textContent = s == null ? '' : String(s);
   return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }}
 const PILL_TONE = {{new:'review', evaluated:'review', change_requested:'review',
-  draft:'review', checked:'review', published:'approved', blocked:'blocked',
-  confirmed:'booked', closed:'neutral', superseded:'neutral', rejected:'neutral'}};
+  needs_information:'review', draft:'review', checked:'review', published:'approved',
+  blocked:'blocked', confirmed:'booked', closed:'neutral', superseded:'neutral',
+  rejected:'neutral'}};
+const STATUS_LABELS = {{needs_information: 'Needs info'}};
 function statusChip(s) {{
   const tone = PILL_TONE[s] || 'review';
-  return '<span class="status-chip ' + esc(s) + ' pill-' + tone + '">' + esc(String(s).replace(/_/g,' ')) + '</span>';
+  const label = STATUS_LABELS[s] || String(s).replace(/_/g,' ');
+  return '<span class="status-chip ' + esc(s) + ' pill-' + tone + '">' + esc(label) + '</span>';
 }}
 const STEP_LABELS = {{claimed: 'Claimed', resume: 'Claimed (resume)', intake: 'Intake',
+  needs_information: 'Needs information',
   scoping: 'Scoping', engine: 'Engine', engine_evaluate: 'Engine (evaluation)',
   reevaluate: 'Engine (re-evaluation)', draft: 'Draft', edit_draft: 'Draft (edit)',
   outbound: 'Outbound', outbound_check: 'Outbound (check)', review: 'Review',
@@ -1268,7 +1348,7 @@ function timelineHtml(steps) {{
 }}
 const STAGE_DEFS = [
   {{key: 'intake', label: 'Intake', skill: 'bidpilot-intake',
-    steps: ['claimed', 'resume', 'intake'], outputs: ['intake']}},
+    steps: ['claimed', 'resume', 'intake', 'needs_information'], outputs: ['intake']}},
   {{key: 'scoping', label: 'Scoping', skill: 'bidpilot-scoping',
     steps: ['scoping'], outputs: ['scoping']}},
   {{key: 'engine', label: 'Engine evaluation', skill: 'bidpilot-engine',
@@ -1406,6 +1486,11 @@ function dealHtml(d) {{
   const queuedHtml = d.queued_clarifications.length
     ? `<div class="blocked">Awaiting founder clarification: ${{d.queued_clarifications.map(q =>
         esc(q.private_note)).join(' | ')}}</div>` : '';
+  const needsInfoHtml = (d.status === 'needs_information')
+    ? `<div class="needs-info"><strong>Needs info — incomplete intake, not evaluated</strong>
+       <div class="small">Missing field paths: ${{((d.needs_information && d.needs_information.missing_fields) || []).map(f => '<code>' + esc(f) + '</code>').join(', ') || '<span class="muted">none recorded</span>'}}.
+       No defaults were fabricated. Supply the missing values, then claim_intake again with the same source / source_id to resume this deal.</div></div>`
+    : '';
   const confirmBtn = d.versions.filter(v => v.status === 'published' && v.accepted_at)
     .map(v => `<button class="danger" id="confirm-${{v.version_id}}"
       onclick="doConfirm('${{v.version_id}}')">Confirm booking (sample only)</button>`).join('');
@@ -1425,6 +1510,7 @@ function dealHtml(d) {{
       <span class="muted small">${{esc(d.source)}}/${{esc(d.source_id)}}</span></h2>
     <p class="quote">“${{esc(d.raw_inquiry || '')}}”</p>
     ${{queuedHtml}}
+    ${{needsInfoHtml}}
     <h3>Deal timeline</h3>
     <p class="small">Private founder view: intake → scoping → engine → draft → outbound
      check → review → client response → booking, built from the run steps and agent
@@ -1457,6 +1543,51 @@ function dealHtml(d) {{
     </form>
     <p class="msg-line small" id="msg-${{d.deal_id.slice(0,8)}}" role="status" aria-live="polite"></p>
    </section>`;
+}}
+function reasonLinkHtml(v) {{
+  const est = v.estimate || {{}};
+  const offer = (v.comparison && v.comparison.offer) || {{}};
+  const m = (x) => money(x);
+  const h = (x) => (x === null || x === undefined) ? '—' : hours(x);
+  const budget = offer.budget_sgd;
+  const LINKS = {{
+    CAPACITY_SHORTFALL: () => `Planning ${{h(est.planning_hours)}} h exceeds available capacity ${{h(est.capacity_hours)}} h.`,
+    BELOW_FLOOR: () => `Budget ${{m(budget)}} is below the internal floor ${{m(est.floor_sgd)}}.`,
+    BELOW_LIST_NEEDS_APPROVAL: () => `Budget ${{m(budget)}} is under list ${{m(est.list_sgd)}} but within floor ${{m(est.floor_sgd)}} and the discount limit — needs your approval.`,
+    OVER_DISCOUNT_LIMIT: () => `Budget ${{m(budget)}} meets floor ${{m(est.floor_sgd)}} but exceeds the allowed discount from list ${{m(est.list_sgd)}}.`,
+    MISSING_FIELD: () => 'A required value is absent — no default is fabricated.',
+    INVALID_FIELD: () => 'A type, enum, date or cross-field constraint failed.',
+    MANUAL_ESTIMATE_REQUIRED: () => "No deterministic rule covers this scope — Alex's estimate is required.",
+    COMPARABLE_MISMATCH: () => 'A comparable ID is missing or its baseline differs (diagnostic).',
+    NO_FEASIBLE_OPTIONS: () => 'The counter search found no safe option.'
+  }};
+  const codes = v.reason_codes || [];
+  if (!codes.length) return '';
+  return `<ul class="reason-links">${{codes.map(c => {{
+    const text = LINKS[c] ? LINKS[c]() : 'See engine reason codes.';
+    return `<li><code>${{esc(c)}}</code> — ${{esc(text)}}</li>`;
+  }}).join('')}}</ul>`;
+}}
+function whatChangedHtml(v) {{
+  const c = v.comparison;
+  if (!c || !c.is_revision) return '';
+  const cell = (val) => (val === null || val === undefined || val === '')
+    ? '<span class="muted">not recorded</span>' : esc(String(val));
+  const fields = c.changed_fields || [];
+  const rows = fields.map(f =>
+    `<tr><th scope="row"><code>${{esc(f.field)}}</code></th>
+     <td class="diff-old">${{cell(f.old)}}</td><td class="diff-new">${{cell(f.new)}}</td></tr>`).join('');
+  const table = fields.length
+    ? `<table class="diff"><thead><tr><th>Field</th>`
+      + `<th>Before (round ${{esc(String(c.prior_round))}})</th><th>After</th></tr></thead>`
+      + `<tbody>${{rows}}</tbody></table>`
+    : '<p class="muted small">No structured offer fields changed versus the prior round'
+      + ' (for example a re-evaluation against fresh capacity).</p>';
+  return `<div class="what-changed">
+    <h4>What changed</h4>
+    ${{table}}
+    ${{reasonLinkHtml(v)}}
+  </div>`;
 }}
 function versionHtml(d, v) {{
   const est = v.estimate;
@@ -1510,7 +1641,7 @@ function versionHtml(d, v) {{
   return `<div class="vblock">
     <h3>Version ${{v.version_no}} — ${{statusChip(v.status)}}
       <span class="muted small">outbound: ${{esc(v.outbound_status)}}</span></h3>
-    ${{estHtml}}${{comps}}${{banner}}${{staleCap}}
+    ${{estHtml}}${{whatChangedHtml(v)}}${{comps}}${{banner}}${{staleCap}}
     <div class="cards">${{optCards}}</div>
     ${{acceptInfo}}
     <textarea class="draft" id="draft-${{v.version_id}}">${{esc(v.draft)}}</textarea>

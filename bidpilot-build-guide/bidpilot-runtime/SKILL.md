@@ -9,8 +9,8 @@ The "Page" in the BidPilot skills is the local BidPilot service. Use only these 
 
 | Skill action | MCP tool |
 | --- | --- |
-| Find new inquiries and client changes | list_pending_work (returns inquiries[], change_requests[] and unevaluated_offers[]) |
-| Claim or resume by (source, source_id) | claim_intake: source is "site", "hashmeta" or "manual"; requires client, raw_inquiry, offer_request {as_of, offer, comparable_ids}; optional evidence and request_id |
+| Find new inquiries and client changes | list_pending_work (returns inquiries[], change_requests[], unevaluated_offers[] and needs_information[] — deals waiting for missing intake fields, each with deal_id, source, source_id, client and missing_fields[]) |
+| Claim or resume by (source, source_id) | claim_intake: source is "site", "hashmeta" or "manual"; requires client, raw_inquiry, offer_request {as_of, offer, comparable_ids}; optional evidence and request_id. An incomplete offer (only missing fields) is NOT rejected — it persists as a deal in status needs_information with no offer and no fabricated defaults, and the result carries status="needs_information" and missing_fields[]. Supply the missing values and call claim_intake again with the SAME (source, source_id) to resume that deal and create the offer. Invalid values (wrong type/enum/range) are still rejected. |
 | Read a deal, its current offer and versions | get_deal |
 | Founder-approved history for scoping (private) | get_scoping_history |
 | Save intake / scoping / negotiator / clarification output | save_agent_output with kind "intake" {offer, evidence, missing_fields, clarification}, "scoping" {scope_profile[{field,value,evidence}], comparable_ids[], differences[{project_id,fields,why,evidence}]}, "negotiator" {draft, option_ids[]}, "clarification" {questions[]} |
@@ -23,7 +23,7 @@ The "Page" in the BidPilot skills is the local BidPilot service. Use only these 
 | Client change that is queued for clarification | submit_change_offer(deal_id, request_id, version_id, offer_request, evidence {raw_message}) |
 
 Order for a new inquiry:
-1. Run bidpilot-intake on the form fields and raw message. Use as_of 2026-11-23. The demo configuration sets direct_costs_sgd to 0 explicitly. If a required field is missing, there is no deal yet (claim_intake rejects incomplete offers). Report the clarification questions to Alex in this task and stop that item.
+1. Run bidpilot-intake on the form fields and raw message. Use as_of 2026-11-23. The demo configuration sets direct_costs_sgd to 0 explicitly. If a required field is missing, claim_intake does NOT reject it — it persists the deal as needs_information (no offer, no fabricated defaults) and returns status="needs_information" with missing_fields[]. Report the clarification questions to Alex in this task and stop that item. Never invent a value to fill a gap. When Alex supplies the missing values, call claim_intake again with the SAME (source, source_id) to resume that deal and create the offer; needs_information[] in list_pending_work lists deals still waiting.
 2. Call get_scoping_history and run bidpilot-scoping to choose comparable_ids.
 3. claim_intake with offer_request = {as_of, offer, comparable_ids}. A duplicate (source, source_id) resumes the same deal. Then record_step claimed, intake and scoping as ok, and save_agent_output for intake and scoping.
 4. evaluate_offer, then record_step engine. For a clarify or decline verdict, save the reason for Alex and stop at review.

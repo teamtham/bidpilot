@@ -49,6 +49,97 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(outcome["passed"], outcome)
         return conn, deal_id, version_id
 
+    # -- C5: incomplete intake persists as needs_information ----------------
+    def test_incomplete_intake_persists_needs_information(self):
+        conn = self.conn()
+        core.load_seed(conn)
+        inc = json.loads(json.dumps(INQUIRY))
+        inc["offer"]["budget_sgd"] = None
+        deal_id, offer_id, created = core.claim_or_resume(
+            conn, "hashmeta", "ni-1", INQUIRY["offer"]["client"], "raw", inc)
+        self.assertTrue(created)
+        self.assertIsNone(offer_id)  # no offer fabricated from missing values
+        self.assertEqual(conn.execute(
+            "SELECT status FROM deals WHERE id=?", (deal_id,)).fetchone()["status"],
+            "needs_information")
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM offers WHERE deal_id=?", (deal_id,)).fetchone()[0], 0)
+        note = conn.execute(
+            "SELECT private_note FROM run_steps WHERE deal_id=? AND"
+            " step_key='needs_information' ORDER BY rowid DESC LIMIT 1",
+            (deal_id,)).fetchone()
+        self.assertIn("offer.budget_sgd",
+                      json.loads(note["private_note"])["missing_fields"])
+        conn.close()
+
+    def test_invalid_intake_still_rejected_not_persisted(self):
+        conn = self.conn()
+        core.load_seed(conn)
+        bad = json.loads(json.dumps(INQUIRY))
+        bad["offer"]["deliverables"] = -1  # INVALID_FIELD, not missing
+        with self.assertRaises(ValueError):
+            core.claim_or_resume(conn, "hashmeta", "bad-1", "X", "raw", bad)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM deals WHERE source_id='bad-1'").fetchone()[0], 0)
+        conn.close()
+
+    def test_needs_information_resumes_same_deal_when_completed(self):
+        conn = self.conn()
+        core.load_seed(conn)
+        inc = json.loads(json.dumps(INQUIRY))
+        del inc["offer"]["deadline"]
+        deal_id, offer_id, _ = core.claim_or_resume(
+            conn, "hashmeta", "ni-2", INQUIRY["offer"]["client"], "raw", inc)
+        self.assertIsNone(offer_id)
+        # still incomplete on retry -> same deal, still no offer, no duplicate deal
+        deal_id2, offer_id2, created2 = core.claim_or_resume(
+            conn, "hashmeta", "ni-2", INQUIRY["offer"]["client"], "raw", inc)
+        self.assertEqual(deal_id2, deal_id)
+        self.assertIsNone(offer_id2)
+        self.assertFalse(created2)
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM deals WHERE source_id='ni-2'").fetchone()[0], 1)
+        # supply the missing field -> resumes the SAME deal, creates the offer
+        deal_id3, offer_id3, created3 = core.claim_or_resume(
+            conn, "hashmeta", "ni-2", INQUIRY["offer"]["client"], "raw", INQUIRY)
+        self.assertEqual(deal_id3, deal_id)
+        self.assertIsNotNone(offer_id3)
+        self.assertFalse(created3)
+        self.assertEqual(conn.execute(
+            "SELECT status FROM deals WHERE id=?", (deal_id,)).fetchone()["status"], "new")
+        self.assertEqual(conn.execute(
+            "SELECT COUNT(*) FROM offers WHERE deal_id=?", (deal_id,)).fetchone()[0], 1)
+        conn.close()
+
+    def test_revised_offer_comparison_changed_fields(self):
+        import server
+        conn = self.conn()
+        core.load_seed(conn)
+        deal_id, offer_id, _ = core.claim_or_resume(
+            conn, "hashmeta", "cmp-1", INQUIRY["offer"]["client"], "raw", INQUIRY)
+        core.evaluate(conn, deal_id, offer_id)
+        req2 = json.loads(json.dumps(INQUIRY))
+        req2["offer"].update(deliverables=5, caption_versions=5, deadline="2026-12-04")
+        vid = conn.execute("SELECT id FROM proposal_versions WHERE deal_id=?"
+                           " ORDER BY version_no DESC LIMIT 1", (deal_id,)).fetchone()["id"]
+        chg = core.create_change_offer(conn, deal_id, vid, "chg-1", req2)
+        conn.commit()
+        core.evaluate(conn, deal_id, chg)
+        state = server.state(conn)
+        ds = next(d for d in state["deals"] if d["deal_id"] == deal_id)
+        revs = [v for v in ds["versions"] if v["comparison"]["is_revision"]]
+        self.assertTrue(revs)
+        cf = {c["field"]: (c["old"], c["new"])
+              for c in revs[-1]["comparison"]["changed_fields"]}
+        self.assertEqual(cf.get("deliverables"), (3, 5))
+        self.assertEqual(cf.get("caption_versions"), (3, 5))
+        self.assertEqual(cf.get("deadline"), ("2026-12-11", "2026-12-04"))
+        # the revised evaluation carries the reason codes the UI links to numbers
+        self.assertIn("CAPACITY_SHORTFALL", revs[-1]["reason_codes"])
+        # a first-round version is not a revision (no prior offer to compare)
+        self.assertTrue(any(not v["comparison"]["is_revision"] for v in ds["versions"]))
+        conn.close()
+
     # -- stage 15: optional trigger field on run steps ----------------------
     def test_record_step_trigger_backward_compatible(self):
         conn = self.conn()
