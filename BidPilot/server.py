@@ -1222,6 +1222,448 @@ _FIXTURES_JSON = json.dumps([
     for sid, label, offer, raw in FIXTURES])
 
 
+DASH_STYLE = r"""
+:root { --bg: #faf7f3; --surface: #ffffff; --border: #e4dcd3; --border-strong: #d6c9bc;
+  --text: #2a1f1a; --muted: #7a6c63; --accent: #7b4b2f; --accent-strong: #5e3720; --accent-soft: #f1e9e1;
+  --danger: #b3261e; --danger-bg: #fbe4e2; --danger-border: #efbcb7;
+  --ok: #2c7a3f; --ok-bg: #e4f3e7; --ok-border: #b7dcc0; --warn: #a2620a; --warn-bg: #fbf0dc; --warn-border: #ecd29f;
+  --neutral-bg: #f4efe9; --neutral-text: #5a4a40; --radius: 10px; --radius-sm: 6px; --shadow: none;
+  --font: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --display: "Newsreader", "Iowan Old Style", Georgia, serif; --dark: #3a2a21; }
+body { font-size: 15px; line-height: 1.5; background: var(--bg); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tiny { font-size: 12px; color: var(--muted); margin: 0; }
+button { border-radius: 6px; font: 600 13.5px/1.2 var(--font); padding: 9px 14px; }
+button.ghost { background: #fff; color: var(--text); border-color: var(--border); }
+button.ghost:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+button:disabled, button:disabled:hover { background: var(--accent); border-color: var(--accent); opacity: .42; }
+.badge { background: var(--accent-soft); color: var(--accent); border-color: var(--border); }
+.badge.dim { background: #fff; color: var(--muted); }
+.app-header { background: #fff; border-bottom: 1px solid var(--border); padding: 10px 22px; }
+.brand-lockup { font: 700 15px var(--font); letter-spacing: 0; }
+.brand-mark { background: var(--accent); width: 18px; height: 18px; border-radius: 5px; }
+.brand-mark:before, .brand-mark:after { display: none; }
+.founder-shell { max-width: 1440px; grid-template-columns: 250px minmax(0, 1fr); }
+.deal-sidebar { padding: 18px 14px; gap: 10px; background: #fff; }
+.deal-sidebar h6 { margin: 8px 0 0; padding: 0 2px; font: 600 12px var(--font); color: var(--muted);
+  display: flex; justify-content: space-between; letter-spacing: 0; text-transform: none; }
+.deal-sidebar h6 span { font-variant-numeric: tabular-nums; }
+.deal-queue { display: grid; gap: 8px; margin: 0; }
+.rail-deal { display: grid; gap: 3px; width: 100%; text-align: left; background: #fff; color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font: 400 12.5px/1.35 var(--font); }
+.rail-deal:hover { background: #fff; border-color: var(--accent); color: var(--text); }
+.rail-deal.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.rail-deal b { font-size: 13px; }
+.dmeta { color: var(--muted); }
+.st { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
+  justify-self: start; white-space: nowrap; }
+.st.big { font-size: 12.5px; padding: 3px 11px; }
+.st.rev { background: var(--warn-bg); color: var(--warn); }
+.st.ok { background: var(--ok-bg); color: var(--ok); }
+.st.bad { background: var(--danger-bg); color: var(--danger); }
+.st.new { background: var(--accent-soft); color: var(--accent); }
+.st.mute { background: var(--neutral-bg); color: var(--muted); }
+.said { margin: 0; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  background: var(--accent-soft); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.said small { display: block; margin-top: 6px; color: var(--muted); font-size: 11.5px; }
+.week { display: grid; gap: 6px; font-size: 12.5px; color: var(--text); }
+.studio-nav { margin-top: 0; }
+.studio-nav a { font-size: 13px; color: var(--accent); text-decoration: none; padding: 4px 2px; }
+.studio-nav a:hover { text-decoration: underline; }
+.sidebar-sync { margin: 8px 2px 0; }
+.meter { height: 10px; border-radius: 5px; background: var(--accent-soft); position: relative; overflow: hidden; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 5px; }
+.meter.over i { background: var(--danger); }
+.workspace-main { padding: 18px 26px 60px; }
+.workspace-toolbar, .operator-tools, .workbench { max-width: 1060px; }
+.main-head { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; margin: 6px 0 16px; }
+.workbench h1 { font: 500 30px/1.15 var(--display); letter-spacing: -.01em; margin: 0; }
+.workbench-subtitle { font-size: 13.5px; }
+.next-step { border-radius: 10px; padding: 14px 16px; margin: 0 0 16px; background: #fff; }
+.next-step h2 { font: 500 20px/1.2 var(--display); margin: 2px 0 4px; }
+.next-step-label { letter-spacing: .04em; }
+.panel { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+  display: grid; gap: 12px; min-width: 0; align-content: start; margin: 0 0 16px; }
+.panel h5 { margin: 0; font: 600 13px var(--font); color: var(--muted); }
+.panel-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.fig { display: grid; gap: 2px; }
+.fig small { font-size: 12px; color: var(--muted); }
+.fig b { font: 600 20px var(--font); font-variant-numeric: tabular-nums; }
+.fig.priv b::after { content: " private"; font: 600 10px var(--font); color: var(--muted); vertical-align: middle; }
+.meterwrap { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.warns, .warns.reason-links { display: grid; gap: 8px; margin: 0; padding: 0; }
+.warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px;
+  background: var(--danger-bg); color: var(--danger); font-size: 13.5px; }
+.warn b, .check b { display: block; }
+.wi { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--danger); color: #fff;
+  font: 700 12px/20px var(--font); text-align: center; margin-top: 1px; }
+.two { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.two .panel { margin: 0 0 16px; }
+.olist { display: grid; gap: 8px; }
+.orow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start;
+  font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fff; }
+.orow.selected { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.oprice { font-size: 15px; font-variant-numeric: tabular-nums; }
+.whatif { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.whatif button { padding: 5px 10px; font-size: 12px; }
+.whatif p { margin: 0; }
+textarea.draft, div.draft, .workbench .draft { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  font: 13.5px/1.55 var(--font); background: #fcfaf8; min-height: 120px; white-space: pre-wrap; width: 100%; margin: 0; color: var(--text); }
+textarea.draft[readonly] { cursor: default; }
+textarea.draft:not([readonly]) { background: #fff; border-color: var(--accent); }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 8px; }
+.check.ok { background: var(--ok-bg); color: var(--ok); }
+.check.bad { background: var(--danger-bg); color: var(--danger); }
+.check.wait { background: var(--neutral-bg); color: var(--muted); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.passed, .blocked, .needs-info { border-radius: 8px; border-left-width: 1px; font-size: 13.5px; }
+.what-changed { border-left: 1px solid var(--border); background: #fff; }
+table.diff th { background: transparent; }
+th { background: var(--neutral-bg); }
+.workbench details { border-radius: 10px; }
+.workbench details > summary { font-size: 13.5px; font-weight: 600; }
+.quote { border-left-color: var(--accent); background: var(--accent-soft); font-style: normal; color: var(--text); }
+.release-panel { background: var(--dark); color: #f6efe8; border-radius: 10px; }
+.release-panel input { background: #2a1d16; color: #f6efe8; border-color: #5a4334; }
+.release-panel button { background: var(--accent); border-color: var(--accent); }
+.release-panel button.ghost { background: transparent; color: #f6efe8; border-color: #5a4334; }
+@media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
+@media (max-width: 780px) { .figs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+"""
+
+DASH_JS = r"""
+let latestCapacity = null;
+const SOURCE_LABELS = {hashmeta: 'Hashmeta', site: 'Website chat', manual: 'Added by you'};
+const FORMAT_LABELS = {product_promo: 'promo video', social_reel: 'social reel',
+  testimonial: 'testimonial', event_recap: 'event recap', explainer: 'explainer'};
+const FIELD_LABELS = {deliverables: 'Videos', caption_versions: 'Captioned versions',
+  deadline: 'Deadline', budget_sgd: 'Budget', shoot_days: 'Shoot days', locations: 'Locations',
+  interviewees: 'Interviewees', scripting: 'Scripting', editing_level: 'Editing',
+  graphics: 'Graphics', revision_rounds: 'Rounds of changes', format: 'Format',
+  production_mode: 'Production', direct_costs_sgd: 'Direct costs', client: 'Client'};
+function money0(v) { return v == null ? '—' : 'S$' + Math.round(Number(v)).toLocaleString('en-SG'); }
+function hrs(v) { return v == null ? '—' : hours(v) + ' h'; }
+function shortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(String(iso) + 'T00:00:00+08:00');
+  if (isNaN(d)) return String(iso);
+  return d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', timeZone: 'Asia/Singapore'});
+}
+function clock(ts) {
+  if (!ts) return '';
+  return new Date(ts * 1000).toLocaleTimeString('en-GB',
+    {hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore'});
+}
+function dealOffer(d) { const o = d.offers[d.offers.length - 1]; return (o && o.offer) || {}; }
+function lastActivity(d) {
+  let t = 0;
+  d.steps.forEach(s => { t = Math.max(t, s.finished_at || s.started_at || 0); });
+  d.messages.forEach(m => { t = Math.max(t, m.created_at || 0); });
+  return t;
+}
+function dealStage(d) {
+  const v = latestVersion(d);
+  if (d.status === 'needs_information') return ['Needs info', 'rev'];
+  if (d.status === 'closed') return ['Closed', 'mute'];
+  if (!v) return ['New inquiry', 'new'];
+  if (v.status === 'confirmed' || v.confirmed) return ['Confirmed', 'ok'];
+  if (v.status === 'published') return v.accepted_at ? ['Client picked an option', 'rev'] : ['Waiting on client', 'new'];
+  if (v.status === 'blocked') return ['Draft blocked', 'bad'];
+  if (v.status === 'rejected') return ['Rejected', 'mute'];
+  if (v.status === 'superseded') return ['Replaced', 'mute'];
+  if (v.verdict === 'counter') return ['Counter ready', 'rev'];
+  if (v.verdict === 'clarify') return ['Needs your estimate', 'rev'];
+  return ['Ready for review', 'rev'];
+}
+function verdictChip(d, v) {
+  if (v && v.verdict === 'accept') return '<span class="st ok big">Fits as asked</span>';
+  if (v && v.verdict === 'counter') return '<span class="st bad big">Doesn’t fit as asked</span>';
+  if (v && v.verdict) return '<span class="st rev big">Needs your estimate</span>';
+  const [label, tone] = dealStage(d);
+  return '<span class="st ' + tone + ' big">' + esc(label) + '</span>';
+}
+function railDeal(d) {
+  const [label, tone] = dealStage(d);
+  const v = latestVersion(d);
+  const changed = v && v.version_no > 1 && d.messages.some(m => m.direction === 'inbound');
+  const when = clock(lastActivity(d));
+  const meta = (changed ? 'Change requested' : (SOURCE_LABELS[d.source] || d.source)) + (when ? ', ' + when : '');
+  const sel = d.deal_id === selectedDealId ? ' sel' : '';
+  return `<button type="button" class="rail-deal${sel}" onclick="selectDeal('${d.deal_id}')">
+    <b>${esc(d.client)}</b><span class="dmeta">${esc(meta)}</span><span class="st ${tone}">${esc(label)}</span></button>`;
+}
+function weekHtml() {
+  const weeks = (latestCapacity && latestCapacity.weeks) || [];
+  if (!weeks.length) return '<span>No capacity calendar yet.</span>';
+  const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Singapore'});
+  const w = weeks.find(x => x.week >= today) || weeks[0];
+  const pct = w.budget_hours > 0 ? Math.max(0, Math.min(100, w.remaining_hours / w.budget_hours * 100)) : 0;
+  return `<span>${hours(w.remaining_hours)} h free of ${hours(w.budget_hours)} h</span>
+    <div class="meter"><i style="width:${pct.toFixed(0)}%"></i></div>
+    <span class="tiny">Week ending ${esc(shortDate(w.week))}</span>`;
+}
+function clientSaidHtml(d) {
+  const inbound = d ? d.messages.filter(m => m.direction === 'inbound') : [];
+  if (!inbound.length) return '';
+  const m = inbound[inbound.length - 1];
+  return `<h6>Client said</h6><blockquote class="said">“${esc(m.body)}”
+    <small>Client text. Treated as a request, not an approval.</small></blockquote>`;
+}
+function renderWorkspace(deals) {
+  const queue = document.getElementById('deal-queue');
+  const progress = document.getElementById('deal-progress');
+  const root = document.getElementById('root');
+  const attention = deals.filter(needsAttention);
+  const others = deals.filter(d => !needsAttention(d));
+  document.getElementById('attention-count').textContent = attention.length;
+  document.getElementById('active-count').textContent = others.filter(d => d.status !== 'closed').length;
+  document.getElementById('week-capacity').innerHTML = weekHtml();
+  if (!deals.length) {
+    queue.innerHTML = '<p class="small">Nothing needs you right now.</p>';
+    progress.innerHTML = '';
+    document.getElementById('client-said').innerHTML = '';
+    root.className = 'empty-state';
+    root.innerHTML = '<span class="big">·</span><h2>No inquiries yet</h2><p class="muted">New Hashmeta inquiries will appear here after QwenWork claims them.</p>';
+    return;
+  }
+  const byRecent = (a, b) => lastActivity(b) - lastActivity(a);
+  attention.sort(byRecent); others.sort(byRecent);
+  if (!selectedDealId || !deals.some(d => d.deal_id === selectedDealId))
+    selectedDealId = (attention[0] || others[0]).deal_id;
+  queue.innerHTML = attention.map(railDeal).join('') || '<p class="small">Nothing needs you right now.</p>';
+  progress.innerHTML = others.map(railDeal).join('') || '<p class="small">Nothing else in progress.</p>';
+  const d = deals.find(x => x.deal_id === selectedDealId);
+  document.getElementById('client-said').innerHTML = clientSaidHtml(d);
+  root.className = '';
+  root.innerHTML = dealHtml(d);
+}
+function plainReasons(v, offer) {
+  const est = v.estimate || {};
+  const due = shortDate(offer.deadline) || 'the deadline';
+  const budget = offer.budget_sgd;
+  const out = [];
+  (v.reason_codes || []).forEach(c => {
+    if (c === 'CAPACITY_SHORTFALL') out.push(['Not enough time before ' + due, est.planning_hours == null ? 'There are not enough free hours before the deadline.'
+      : `This needs about ${Math.round(est.planning_hours)} hours. You have ${Math.round(est.capacity_hours)} hours free before then.`]);
+    else if (c === 'BELOW_FLOOR') out.push(['Price is under your minimum', (budget != null && est.floor_sgd != null)
+      ? `${money0(budget)} is ${money0(est.floor_sgd - budget)} less than the lowest you’d accept.`
+      : 'The client’s budget is under the lowest you’d accept.']);
+    else if (c === 'BELOW_LIST_NEEDS_APPROVAL') out.push(['Under your list price', (budget != null && est.list_sgd != null)
+      ? `${money0(budget)} is ${money0(est.list_sgd - budget)} under your list price but above your minimum. It needs your OK.`
+      : 'The budget is under your list price but above your minimum. It needs your OK.']);
+    else if (c === 'OVER_DISCOUNT_LIMIT') out.push(['Discount is bigger than you allow',
+      `${money0(budget)} is above your minimum, but further under your list price of ${money0(est.list_sgd)} than your discount limit allows.`]);
+    else if (c === 'MISSING_FIELD') out.push(['Some project details are missing', 'Nothing was guessed. Ask the client for the missing details.']);
+    else if (c === 'INVALID_FIELD') out.push(['Some project details don’t add up', 'A date, number or choice in the brief needs checking.']);
+    else if (c === 'MANUAL_ESTIMATE_REQUIRED') out.push(['This needs your own estimate', 'No pricing rule covers this kind of job yet, so no price was worked out.']);
+    else if (c === 'COMPARABLE_MISMATCH') out.push(['A past job used for comparison doesn’t match', 'Check the similar past jobs before relying on this estimate.']);
+    else if (c === 'NO_FEASIBLE_OPTIONS') out.push(['No option fits', 'The engine could not find a safe counter offer.']);
+    else out.push(['Check this estimate', 'The engine flagged something it could not explain in plain words.']);
+  });
+  if (v.capacity_stale) out.push(['Your calendar changed since this estimate',
+    'Another booking was confirmed. Re-run the estimate before sending; some options may no longer fit.']);
+  (v.impacts || []).forEach(i => out.push(['A booking changed what you can offer',
+    'No longer fits: ' + (i.lost || []).map(o => o.deliverables + ' videos by ' + shortDate(o.deadline)).join(', ') + '.']));
+  return out;
+}
+// Plain-language engine reasons (no internal codes are shown).
+function reasonLinkHtml(items) {
+  if (!items.length) return '';
+  return '<div class="warns reason-links">' + items.map(([t, x]) =>
+    `<div class="warn"><span class="wi" aria-hidden="true">!</span><span><b>${esc(t)}</b>${esc(x)}</span></div>`).join('') + '</div>';
+}
+function estimatePanel(d, v) {
+  const offer = (v.comparison && v.comparison.offer && Object.keys(v.comparison.offer).length) ? v.comparison.offer : dealOffer(d);
+  const reasons = plainReasons(v, offer);
+  const est = v.estimate;
+  if (!est) return reasons.length ? `<section class="panel"><h5>Why this needs you</h5>${reasonLinkHtml(reasons)}</section>` : '';
+  const due = shortDate(offer.deadline);
+  const over = est.planning_hours > est.capacity_hours;
+  const pct = est.capacity_hours > 0 ? Math.min(100, est.planning_hours / est.capacity_hours * 100) : 100;
+  const used = (v.comparables && v.comparables.used) || [];
+  const basis = used.length ? `Based on ${used.length} similar past job${used.length === 1 ? '' : 's'}` : 'No similar past jobs on file';
+  const heading = v.verdict === 'counter' ? 'Why this needs a counter offer' : 'Engine estimate, private to you';
+  const pricing = v.pricing_evidence && (v.pricing_evidence.samples || []).length
+    ? `<span>Past prices: ${esc(v.pricing_evidence.samples.map(p => money0(p.price_sgd)).join(', '))}</span>` : '';
+  return `<section class="panel estimate"><div class="panel-top"><h5>${heading}</h5>${v.verdict === 'counter' ? '<span class="tiny">Engine estimate, private to you</span>' : ''}</div>
+    <div class="figs">
+      <div class="fig"><small>Hours needed</small><b>${hrs(est.planning_hours)}</b></div>
+      <div class="fig"><small>Free hours before ${esc(due || 'the deadline')}</small><b>${hrs(est.capacity_hours)}</b></div>
+      <div class="fig"><small>List price</small><b>${money(est.list_sgd)}</b></div>
+      <div class="fig priv"><small>Lowest you’d accept</small><b>${money(est.floor_sgd)}</b></div>
+    </div>
+    <div class="meterwrap"><span>Hours needed vs free hours</span>
+      <div class="meter${over ? ' over' : ''}"><i style="width:${pct.toFixed(0)}%"></i></div>
+      <span>Works out to ${money(est.effective_rate_sgd)} an hour. ${basis}, plus ${esc(est.buffer_pct)}% extra time for surprises.</span>${pricing}</div>
+    ${reasonLinkHtml(reasons)}</section>`;
+}
+function whatChangedHtml(v) {
+  const c = v.comparison;
+  if (!c || !c.is_revision) return '';
+  const fmt = (f, val) => {
+    if (val === null || val === undefined || val === '') return '<span class="muted">not recorded</span>';
+    if (/_sgd$/.test(f)) return esc(money0(val));
+    if (f === 'deadline') return esc(shortDate(val));
+    return esc(String(val).replace(/_/g, ' '));
+  };
+  const fields = c.changed_fields || [];
+  const rows = fields.map(f => `<tr><th scope="row">${esc(FIELD_LABELS[f.field] || f.field.replace(/_/g, ' '))}</th>
+     <td class="diff-old">${fmt(f.field, f.old)}</td><td class="diff-new">${fmt(f.field, f.new)}</td></tr>`).join('');
+  return `<section class="panel what-changed"><h5>What changed since version ${esc(String(c.prior_round))}</h5>
+    ${fields.length ? `<table class="diff"><thead><tr><th>Detail</th><th>Before</th><th>Now</th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<p class="muted small">Nothing in the brief changed. This is a fresh estimate against your current calendar.</p>'}</section>`;
+}
+function draftLeak(v) {
+  const est = v.estimate || {};
+  const text = String(v.draft || '');
+  const forms = n => (n == null || isNaN(Number(n))) ? [] : [
+    Number(n).toLocaleString('en-SG', {minimumFractionDigits: 2, maximumFractionDigits: 2}),
+    Number(n).toFixed(2), String(Number(n))];
+  const floorHit = forms(est.floor_sgd).find(f => text.includes(f));
+  if (floorHit) return ['Blocked: this draft shows your minimum price', `Take out “${floorHit}” before it can go to the client.`];
+  const hourHit = forms(est.planning_hours).concat(forms(est.capacity_hours)).find(f => f.includes('.') && text.includes(f));
+  if (hourHit) return ['Blocked: this draft shows your hours', `Take out “${hourHit}” before it can go to the client.`];
+  return ['Blocked: this draft has something private in it', 'Take out internal numbers or other client names, then run the check again.'];
+}
+function checkRow(kind, title, text) {
+  const icon = kind === 'ok' ? '✓' : (kind === 'bad' ? '✕' : '○');
+  return `<div class="check ${kind}"><span aria-hidden="true">${icon}</span><span><b>${esc(title)}</b>${esc(text)}</span></div>`;
+}
+function checkRows(v) {
+  if (v.outbound_status === 'passed') return checkRow('ok', 'Safe to send', 'No hours, minimum price or other client names in the message.')
+    + checkRow('ok', 'Price matches the estimate', 'Price and dates come from this estimate.');
+  if (v.outbound_status === 'blocked') { const [t, x] = draftLeak(v);
+    return checkRow('bad', t, x) + checkRow('wait', 'Price matches the estimate', 'Checked again once the draft is fixed.'); }
+  return checkRow('wait', 'Safe to send', 'Not checked yet. Run the check before this can go out.')
+    + checkRow('wait', 'Price matches the estimate', 'Not checked yet.');
+}
+function toggleEdit(id, btn) {
+  const ta = document.getElementById('draft-' + id);
+  if (ta.readOnly) { ta.readOnly = false; ta.focus(); btn.textContent = 'Save draft'; return; }
+  doEdit(id);
+}
+function dealHtml(d) {
+  const v = latestVersion(d);
+  const latestOffer = d.offers[d.offers.length - 1];
+  const offer = latestOffer && latestOffer.offer;
+  const missing = (d.needs_information && d.needs_information.missing_fields) || [];
+  let nextTitle = 'Wait for QwenWork';
+  let nextCopy = 'This deal is being prepared from the saved inquiry.';
+  let nextActions = '';
+  if (d.status === 'needs_information') {
+    nextTitle = missing.length ? 'Ask for the missing project details' : 'Await the client’s clarification';
+    nextCopy = 'The inquiry is saved and no estimate was invented. QwenWork drafted a targeted follow-up before intake can resume.';
+  } else if (!v && latestOffer) {
+    nextTitle = 'Run the estimate';
+    nextCopy = 'The intake is saved. Work out hours, free time and price against your current calendar.';
+    nextActions = `<button onclick="doEvaluate('${d.deal_id}','${latestOffer.offer_id}')">Run the estimate</button>`;
+  } else if (v && ['evaluated', 'draft', 'blocked'].includes(v.status)) {
+    nextTitle = v.status === 'blocked' ? 'Fix the draft, then check it again' : 'Check the message, then approve';
+    nextCopy = v.status === 'blocked' ? 'The check stopped this draft. Keep private numbers out of the client message, then run the check again.' : 'The engine has a proposal ready. The check must pass before Approve and send unlocks.';
+  } else if (v && v.status === 'checked') {
+    nextTitle = 'Approve and send';
+    nextCopy = 'The check passed. Approving creates the client’s private proposal link; your private numbers stay here.';
+  } else if (v && v.status === 'published' && v.accepted_at && !v.confirmed) {
+    nextTitle = 'Confirm the client’s pick';
+    nextCopy = 'The client picked an option you approved. Confirming re-checks your calendar before booking it.';
+    nextActions = `<button id="confirm-${v.version_id}" onclick="doConfirm('${v.version_id}')">Confirm booking</button>`;
+  } else if (v && ['published', 'confirmed'].includes(v.status)) {
+    nextTitle = v.status === 'confirmed' ? 'Booking is confirmed' : 'Wait for the client’s reply';
+    nextCopy = v.status === 'confirmed' ? 'The hours are set aside for this booking.' : 'The client has your approved proposal. Any change request comes back here for review.';
+  }
+  const firstOffer = d.offers[0]?.offer_id;
+  const roundForStep = s => s.offer_id || (['intake', 'resume'].includes(s.step_key) ? firstOffer : null);
+  const rounds = d.offers.map(o => `<section aria-label="Run round ${o.round}">
+    <h4>Round ${o.round}</h4>
+    ${timelineHtml(d.steps.filter(s => roundForStep(s) === o.offer_id))}
+    ${d.agent_outputs.filter(a => a.offer_id === o.offer_id).map(agentOutputHtml).join('')}
+    </section>`).join('');
+  const dealActivity = timelineHtml(d.steps.filter(s => !roundForStep(s)))
+    + d.agent_outputs.filter(a => !a.offer_id).map(agentOutputHtml).join('');
+  const needsInfoHtml = d.status === 'needs_information' ? `<div class="needs-info"><strong>Incomplete inquiry, no estimate made</strong><div class="small">Missing: ${missing.map(f => esc(FIELD_LABELS[f] || String(f).replace(/_/g, ' '))).join(', ') || 'details not recorded'}. QwenWork will pick this deal back up when the client replies.</div></div>` : '';
+  const closeBtn = d.status === 'confirmed' ? `<button class="ghost" onclick="doClose('${d.deal_id}')">Close deal</button>` : '';
+  const o = offer || {};
+  const kind = FORMAT_LABELS[o.format] || (o.format ? String(o.format).replace(/_/g, ' ') : 'video');
+  const what = o.deliverables ? `${o.deliverables} ${kind}${o.deliverables === 1 ? '' : 's'}` : '';
+  const title = esc(d.client) + (v && v.version_no > 1 ? ', version ' + v.version_no : (what ? ', ' + esc(what) : ''));
+  const sub = [what && o.deadline ? what + ' by ' + shortDate(o.deadline) : '', (d.source === 'manual' ? 'Added by you' : 'From ' + (SOURCE_LABELS[d.source] || d.source)), d.source_id].filter(Boolean).join(' · ');
+  const showNext = nextActions || closeBtn || !v || !['evaluated', 'draft', 'blocked', 'checked'].includes(v.status);
+  return `<section class="workbench" id="deal-${d.deal_id.slice(0,8)}">
+    <div class="main-head"><div><h1>${title}</h1><p class="workbench-subtitle">${esc(sub)}</p></div>${verdictChip(d, v)}</div>
+    ${showNext ? `<section class="next-step"><div class="next-step-label">Next step</div><h2>${esc(nextTitle)}</h2><p>${esc(nextCopy)}</p>${(nextActions || closeBtn) ? `<div class="ctl">${nextActions}${closeBtn}</div>` : ''}</section>` : ''}
+    ${needsInfoHtml}
+    ${v ? estimatePanel(d, v) + whatChangedHtml(v) + versionHtml(d, v) : '<p class="small muted">No proposal yet.</p>'}
+    <details><summary>Brief and where it came from</summary><div class="detail-inner"><p class="quote">“${esc(d.raw_inquiry || '')}”</p>
+      ${offer ? `<table><tr><th>Format</th><td>${esc(kind)}</td><th>Delivery</th><td>${esc(offer.deliverables)} videos by ${esc(shortDate(offer.deadline))}</td></tr><tr><th>Budget</th><td>${money(offer.budget_sgd)}</td><th>Production</th><td>${esc(String(offer.production_mode || '').replace(/_/g, ' '))}</td></tr></table>` : '<p class="small muted">Structured intake is not available yet.</p>'}
+      ${d.agent_outputs.filter(a => a.kind === 'intake' || a.kind === 'clarification').map(agentOutputHtml).join('')}</div></details>
+    <details><summary>Deal timeline and run audit</summary><div class="detail-inner"><p class="small">Private run history from intake through booking. Blocked stages remain visible for review.</p>${stageTimelineHtml(d)}
+      ${dealActivity ? '<h4>Deal activity</h4>' + dealActivity : ''}${rounds}
+      <h4>Audit trail</h4><table><tr><th>Action</th><th>Note</th><th>Digest</th></tr>${d.approvals.map(a => `<tr><td>${esc(a.action)}</td><td>${esc(a.note)}</td><td><span class="small">${esc(String(a.reviewed_digest||'').slice(0,12))}…</span></td></tr>`).join('')}</table></div></details>
+    <details><summary>Client messages and demo change request</summary><div class="detail-inner"><ul>${d.messages.map(m => `<li><b>${esc(m.direction)}</b> ${esc(m.body)} ${m.request_id ? '<code>'+esc(m.request_id)+'</code>' : ''}</li>`).join('') || '<li class="muted">No client messages yet.</li>'}</ul>
+      <form class="intake" onsubmit="return submitChange(event, '${d.deal_id}')"><label>Videos<input id="chg-count-${d.deal_id.slice(0,8)}" value="5" type="number" min="1"></label><label>Caption versions<input id="chg-caps-${d.deal_id.slice(0,8)}" value="5" type="number" min="0"></label><label>Deadline<input id="chg-deadline-${d.deal_id.slice(0,8)}" value="2026-12-04"></label><label>Budget S$<input id="chg-budget-${d.deal_id.slice(0,8)}" value="2700" type="number" step="0.01"></label><label class="wide"><button type="submit">Queue change request</button></label></form>
+      <p class="msg-line small" id="msg-${d.deal_id.slice(0,8)}" role="status" aria-live="polite"></p></div></details>
+   </section>`;
+}
+function versionHtml(d, v) {
+  const meta = {};
+  (v.option_meta || []).forEach(m => { meta[m.option_id] = m; });
+  const opts = v.options || [];
+  const rows = opts.map(o => {
+    const m = meta[o.option_id] || {};
+    const rowId = m.option_row_id || '';
+    const phases = (o.phases || []).map(p => p.deliverables + ' by ' + shortDate(p.deadline)).join(', then ');
+    const sel = rowId === v.selected_option_id ? ' selected' : '';
+    const acc = v.accepted_option && v.accepted_option.option_id === rowId
+      ? ' <span class="st ok">Client picked this</span>' : '';
+    const whatIf = ['draft','checked','published'].includes(v.status)
+      ? `<div class="whatif"><button type="button" class="ghost" onclick="previewCapacity('${v.version_id}','${rowId}',this)">What if they book?</button><p role="status" class="small"></p></div>` : '';
+    return `<div class="orow${sel}"><span><b>${esc(m.label || o.option_id)}</b>${acc}<br>
+      <span class="muted">${o.deliverables} videos by ${esc(shortDate(o.deadline))}${phases ? ' (' + esc(phases) + ')' : ''}
+      · ${o.caption_versions} captioned · ${o.revision_rounds} rounds of changes</span></span>
+      <b class="oprice">${money0(o.price_sgd)}</b>${whatIf}</div>`;
+  }).join('');
+  const acceptInfo = v.accepted_option && v.accepted_option.terms ? `<p class="passed">The client picked
+    ${esc(v.accepted_option.terms.deliverables + ' videos by ' + shortDate(v.accepted_option.terms.deadline) + ' for ' + money(v.accepted_option.terms.price_sgd))}
+    ${v.confirmed ? '· booking confirmed' : '· waiting for you to confirm'}</p>` : '';
+  const canEdit = ['draft','blocked','checked','evaluated'].includes(v.status) && !v.confirmed;
+  const needsCheck = ['draft','blocked','evaluated'].includes(v.status) && !v.confirmed;
+  const canRelease = v.status === 'checked' && !v.confirmed;
+  const previewBtn = (v.status === 'published' || v.status === 'confirmed')
+    ? `<button class="ghost" onclick="openPreview('${v.version_id}')">Preview sent proposal</button>` : '';
+  const rotateBtn = (v.status === 'published' || v.status === 'confirmed')
+    ? `<button class="ghost" onclick="doRotate('${v.version_id}')">Reissue client link</button>` : '';
+  const draft = canEdit
+    ? `<label class="sr" for="draft-${v.version_id}">Client-facing draft</label><textarea class="draft" id="draft-${v.version_id}" readonly>${esc(v.draft)}</textarea>`
+    : `<div class="draft">${esc(v.draft)}</div>`;
+  const approve = (needsCheck || canRelease)
+    ? `<button class="p" ${canRelease ? '' : 'disabled title="Unlocks after the check passes"'} onclick="doApprove('${v.version_id}')">Approve and send</button>` : '';
+  return `<div class="two">
+    <section class="panel">
+      <h5>${opts.length === 1 ? 'Option the client will see' : 'Options for the client'}</h5>
+      <div class="olist">${rows || '<p class="small muted">No options yet.</p>'}</div>
+      ${acceptInfo}
+      <h5>Draft message</h5>${draft}
+    </section>
+    <section class="panel checks">
+      <h5>Before it goes out</h5>
+      <div aria-live="polite">${checkRows(v)}</div>
+      <div class="actions">
+        ${needsCheck ? `<button class="ghost" onclick="doCheck('${v.version_id}')">Run check</button>` : ''}
+        ${approve}
+        ${canEdit ? `<button class="ghost" onclick="toggleEdit('${v.version_id}', this)">Edit draft</button>
+          <button class="danger" onclick="doReject('${v.version_id}')">Reject</button>` : ''}
+        ${previewBtn}${rotateBtn}
+      </div>
+      <p class="tiny">${canRelease ? 'Approving creates the client’s private proposal link. Your private numbers stay on this screen.'
+        : (needsCheck ? 'Approve and send stays locked until the check passes. Any edit to the draft needs a fresh check.' : 'Version ' + v.version_no + ' · ' + esc(dealStage(d)[0]))}</p>
+      <div id="msg-${v.version_id}" role="status" aria-live="polite" class="small msg-line"></div>
+    </section>
+  </div>`;
+}
+"""
+
+
 def founder_page(conn):
     fixture_buttons = "".join(
         f'<button class="ghost" onclick="importFixture({i})">{_esc(label)}</button>'
@@ -1229,25 +1671,28 @@ def founder_page(conn):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BidPilot — founder dashboard (private)</title>
-<style>{FOUNDER_STYLE}</style></head><body>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<style>{FOUNDER_STYLE}{DASH_STYLE}</style></head><body>
 <header class="app-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"></span><span>BidPilot</span><span class="brand-subtitle">Sales desk</span></div>
 <div class="header-meta"><span class="badge">{SAMPLE_BADGE}</span>
  <span class="badge dim">Private founder view</span></div></header>
 <main class="founder-shell">
 <aside class="deal-sidebar" aria-label="Deal navigation">
-  <div class="sidebar-heading">Studio tools</div>
+  <h6>Needs you <span id="attention-count">0</span></h6>
+  <div id="deal-queue" class="deal-queue" aria-live="polite"><p class="small">Loading deals…</p></div>
+  <h6>In progress <span id="active-count">0</span></h6>
+  <div id="deal-progress" class="deal-queue"></div>
+  <div id="client-said"></div>
+  <h6>This week</h6>
+  <div id="week-capacity" class="week"><span>Loading capacity…</span></div>
+  <h6>Studio tools</h6>
   <nav class="sidebar-nav studio-nav">
     <a href="/inquire" target="_blank" rel="noopener">Buyer inquiry</a>
     <a href="/portfolio" data-owner-link>Portfolio library</a>
     <a href="/estimating" data-owner-link>Production estimates</a>
     <a href="/commerce" data-owner-link>Proposals and amendments</a>
-  </nav><div class="sidebar-heading">Your work</div>
-  <nav class="sidebar-nav" aria-label="Deal views">
-    <button type="button" class="sidebar-filter is-active">Needs attention <span id="attention-count">0</span></button>
-    <button type="button" class="sidebar-filter">Active deals <span id="active-count">0</span></button>
   </nav>
-  <div class="sidebar-heading queue-heading">Attention queue</div>
-  <div id="deal-queue" class="deal-queue" aria-live="polite"><p class="small">Loading deals…</p></div>
   <p class="sidebar-sync">Inbound runs through Hashmeta and QwenWork.<br>Live state refreshes while this page is open.</p>
 </aside>
 <section class="workspace-main">
@@ -1510,6 +1955,7 @@ async function refreshState(automatic) {{
       + `</table><p class="small">${{esc(c.note)}}</p>`;
   }}
   latestDeals = st.deals;
+  latestCapacity = st.capacity;
   const dealSnapshot = JSON.stringify(st.deals);
   if (dealSnapshot === renderedDeals) return;
   if (automatic && root.contains(document.activeElement)
@@ -1571,32 +2017,6 @@ function queueTone(d) {{
 function selectDeal(dealId) {{
   selectedDealId = dealId;
   renderWorkspace(latestDeals);
-}}
-function renderWorkspace(deals) {{
-  const queue = document.getElementById('deal-queue');
-  const root = document.getElementById('root');
-  const attention = deals.filter(needsAttention);
-  document.getElementById('attention-count').textContent = attention.length;
-  document.getElementById('active-count').textContent = deals.filter(d => d.status !== 'closed').length;
-  if (!deals.length) {{
-    queue.innerHTML = '<p class="small">No deals yet.</p>';
-    root.className = 'empty-state';
-    root.innerHTML = '<span class="big">·</span><h2>No inquiries yet</h2><p class="muted">New Hashmeta inquiries will appear here after QwenWork claims them.</p>';
-    return;
-  }}
-  const ordered = [...deals].sort((a, b) => Number(needsAttention(b)) - Number(needsAttention(a)));
-  if (!selectedDealId || !deals.some(d => d.deal_id === selectedDealId)) selectedDealId = ordered[0].deal_id;
-  queue.innerHTML = ordered.map(d => {{
-    const selected = d.deal_id === selectedDealId ? ' is-selected' : '';
-    const v = latestVersion(d);
-    const meta = d.status === 'needs_information' ? 'Missing project details'
-      : (v ? (STATUS_LABELS[v.status] || v.status.replace(/_/g, ' ')) : 'Ready for evaluation');
-    return `<button type="button" class="queue-deal${{selected}}" onclick="selectDeal('${{d.deal_id}}')">
-      <span class="queue-line"><span>${{esc(d.client)}}</span><span class="queue-dot ${{queueTone(d)}}" aria-hidden="true"></span></span>
-      <span class="queue-meta">${{esc(meta)}}</span></button>`;
-  }}).join('');
-  root.className = '';
-  root.innerHTML = dealHtml(deals.find(d => d.deal_id === selectedDealId));
 }}
 const STEP_LABELS = {{claimed: 'Claimed', resume: 'Claimed (resume)', intake: 'Intake',
   needs_information: 'Needs information',
@@ -1744,180 +2164,7 @@ function agentOutputHtml(output) {{
       return '';
   }}
 }}
-function dealHtml(d) {{
-  const v = latestVersion(d);
-  const latestOffer = d.offers[d.offers.length - 1];
-  const offer = latestOffer && latestOffer.offer;
-  const missing = (d.needs_information && d.needs_information.missing_fields) || [];
-  let nextTitle = 'Wait for QwenWork';
-  let nextCopy = 'This deal is being prepared from the saved inquiry.';
-  let nextActions = '';
-  if (d.status === 'needs_information') {{
-    nextTitle = missing.length ? 'Ask for the missing project details' : 'Await the client’s clarification';
-    nextCopy = 'The inquiry is saved and no estimate was invented. QwenWork drafted a targeted follow-up before intake can resume.';
-  }} else if (!v && latestOffer) {{
-    nextTitle = 'Run the estimate';
-    nextCopy = 'The intake is saved. Evaluate the structured offer against current capacity and pricing rules.';
-    nextActions = `<button onclick="doEvaluate('${{d.deal_id}}','${{latestOffer.offer_id}}')">Evaluate offer</button>`;
-  }} else if (v && ['evaluated', 'draft', 'blocked'].includes(v.status)) {{
-    nextTitle = v.status === 'blocked' ? 'Repair the outbound draft' : 'Check the proposal before release';
-    nextCopy = v.status === 'blocked' ? 'The outbound gate blocked this version. Keep private numbers out of client-facing copy, then run the check again.' : 'BidPilot has an engine-backed proposal. The outbound gate must pass before it can be released.';
-    nextActions = `<button onclick="doCheck('${{v.version_id}}')">Run outbound check</button>`;
-  }} else if (v && v.status === 'checked') {{
-    nextTitle = 'Release the approved proposal';
-    nextCopy = 'The current version passed the outbound gate. Releasing creates a client-safe link; private estimates stay here.';
-    nextActions = `<button onclick="doApprove('${{v.version_id}}')">Release client proposal</button>`;
-  }} else if (v && v.status === 'published' && v.accepted_at && !v.confirmed) {{
-    nextTitle = 'Confirm the client’s selection';
-    nextCopy = 'The client selected an approved option. Confirming revalidates capacity before creating the sample booking.';
-    nextActions = `<button id="confirm-${{v.version_id}}" onclick="doConfirm('${{v.version_id}}')">Confirm booking</button>`;
-  }} else if (v && ['published', 'confirmed'].includes(v.status)) {{
-    nextTitle = v.status === 'confirmed' ? 'Booking is confirmed' : 'Wait for the client’s reply';
-    nextCopy = v.status === 'confirmed' ? 'Capacity is allocated to the confirmed booking.' : 'The client has the latest approved proposal. BidPilot will queue any change request for review.';
-    nextActions = `<button class="ghost" onclick="openPreview('${{v.version_id}}')">Preview sent proposal</button>`;
-  }}
-  const firstOffer = d.offers[0]?.offer_id;
-  const roundForStep = s => s.offer_id || (['intake', 'resume'].includes(s.step_key) ? firstOffer : null);
-  const rounds = d.offers.map(o => `<section aria-label="Run round ${{o.round}}">
-    <h4>Round ${{o.round}}</h4>
-    ${{timelineHtml(d.steps.filter(s => roundForStep(s) === o.offer_id))}}
-    ${{d.agent_outputs.filter(a => a.offer_id === o.offer_id).map(agentOutputHtml).join('')}}
-    </section>`).join('');
-  const dealActivity = timelineHtml(d.steps.filter(s => !roundForStep(s)))
-    + d.agent_outputs.filter(a => !a.offer_id).map(agentOutputHtml).join('');
-  const options = v ? versionHtml(d, v) : '<p class="small muted">No proposal version exists yet.</p>';
-  const needsInfoHtml = d.status === 'needs_information' ? `<div class="needs-info"><strong>Incomplete inquiry — no estimate created</strong><div class="small">Missing: ${{missing.map(f => '<code>' + esc(f) + '</code>').join(', ') || 'details not recorded'}}. QwenWork will resume this same deal when the client replies.</div></div>` : '';
-  const closeBtn = d.status === 'confirmed' ? `<button class="ghost" onclick="doClose('${{d.deal_id}}')">Close deal</button>` : '';
-  return `<section class="workbench" id="deal-${{d.deal_id.slice(0,8)}}">
-    <div class="workbench-header"><div><h1>${{esc(d.client)}} ${{statusChip(d.status)}}</h1><p class="workbench-subtitle">${{esc(d.source)}} inquiry · ${{esc(d.source_id)}}</p></div></div>
-    <section class="next-step"><div class="next-step-label">Next step</div><h2>${{esc(nextTitle)}}</h2><p>${{esc(nextCopy)}}</p><div class="ctl">${{nextActions}}${{closeBtn}}</div></section>
-    ${{needsInfoHtml}}
-    <details><summary>Brief &amp; source evidence</summary><div class="detail-inner"><p class="quote">“${{esc(d.raw_inquiry || '')}}”</p>
-      ${{offer ? `<table><tr><th>Format</th><td>${{esc(offer.format)}}</td><th>Delivery</th><td>${{esc(offer.deliverables)}} videos by ${{esc(offer.deadline)}}</td></tr><tr><th>Budget</th><td>${{money(offer.budget_sgd)}}</td><th>Production</th><td>${{esc(offer.production_mode)}}</td></tr></table>` : '<p class="small muted">Structured intake is not available yet.</p>'}}
-      ${{d.agent_outputs.filter(a => a.kind === 'intake' || a.kind === 'clarification').map(agentOutputHtml).join('')}}</div></details>
-    <details open><summary>Proposal &amp; checks</summary><div class="detail-inner">${{options}}</div></details>
-    <details><summary>Deal timeline &amp; run audit</summary><div class="detail-inner"><p class="small">Private run history from intake through booking. Blocked stages remain visible for review.</p>${{stageTimelineHtml(d)}}
-      ${{dealActivity ? '<h4>Deal activity</h4>' + dealActivity : ''}}${{rounds}}
-      <h4>Audit trail</h4><table><tr><th>Action</th><th>Note</th><th>Digest</th></tr>${{d.approvals.map(a => `<tr><td>${{esc(a.action)}}</td><td>${{esc(a.note)}}</td><td><span class="small">${{esc(String(a.reviewed_digest||'').slice(0,12))}}…</span></td></tr>`).join('')}}</table></div></details>
-    <details><summary>Client messages &amp; demo change request</summary><div class="detail-inner"><ul>${{d.messages.map(m => `<li><b>${{esc(m.direction)}}</b> ${{esc(m.body)}} ${{m.request_id ? '<code>'+esc(m.request_id)+'</code>' : ''}}</li>`).join('') || '<li class="muted">No client messages yet.</li>'}}</ul>
-      <form class="intake" onsubmit="return submitChange(event, '${{d.deal_id}}')"><label>Videos<input id="chg-count-${{d.deal_id.slice(0,8)}}" value="5" type="number" min="1"></label><label>Caption versions<input id="chg-caps-${{d.deal_id.slice(0,8)}}" value="5" type="number" min="0"></label><label>Deadline<input id="chg-deadline-${{d.deal_id.slice(0,8)}}" value="2026-12-04"></label><label>Budget S$<input id="chg-budget-${{d.deal_id.slice(0,8)}}" value="2700" type="number" step="0.01"></label><label class="wide"><button type="submit">Queue change request</button></label></form>
-      <p class="msg-line small" id="msg-${{d.deal_id.slice(0,8)}}" role="status" aria-live="polite"></p></div></details>
-   </section>`;
-}}
-function reasonLinkHtml(v) {{
-  const est = v.estimate || {{}};
-  const offer = (v.comparison && v.comparison.offer) || {{}};
-  const m = (x) => money(x);
-  const h = (x) => (x === null || x === undefined) ? '—' : hours(x);
-  const budget = offer.budget_sgd;
-  const LINKS = {{
-    CAPACITY_SHORTFALL: () => `Planning ${{h(est.planning_hours)}} h exceeds available capacity ${{h(est.capacity_hours)}} h.`,
-    BELOW_FLOOR: () => `Budget ${{m(budget)}} is below the internal floor ${{m(est.floor_sgd)}}.`,
-    BELOW_LIST_NEEDS_APPROVAL: () => `Budget ${{m(budget)}} is under list ${{m(est.list_sgd)}} but within floor ${{m(est.floor_sgd)}} and the discount limit — needs your approval.`,
-    OVER_DISCOUNT_LIMIT: () => `Budget ${{m(budget)}} meets floor ${{m(est.floor_sgd)}} but exceeds the allowed discount from list ${{m(est.list_sgd)}}.`,
-    MISSING_FIELD: () => 'A required value is absent — no default is fabricated.',
-    INVALID_FIELD: () => 'A type, enum, date or cross-field constraint failed.',
-    MANUAL_ESTIMATE_REQUIRED: () => "No deterministic rule covers this scope — Alex's estimate is required.",
-    COMPARABLE_MISMATCH: () => 'A comparable ID is missing or its baseline differs (diagnostic).',
-    NO_FEASIBLE_OPTIONS: () => 'The counter search found no safe option.'
-  }};
-  const codes = v.reason_codes || [];
-  if (!codes.length) return '';
-  return `<ul class="reason-links">${{codes.map(c => {{
-    const text = LINKS[c] ? LINKS[c]() : 'See engine reason codes.';
-    return `<li><code>${{esc(c)}}</code> — ${{esc(text)}}</li>`;
-  }}).join('')}}</ul>`;
-}}
-function whatChangedHtml(v) {{
-  const c = v.comparison;
-  if (!c || !c.is_revision) return '';
-  const cell = (val) => (val === null || val === undefined || val === '')
-    ? '<span class="muted">not recorded</span>' : esc(String(val));
-  const fields = c.changed_fields || [];
-  const rows = fields.map(f =>
-    `<tr><th scope="row"><code>${{esc(f.field)}}</code></th>
-     <td class="diff-old">${{cell(f.old)}}</td><td class="diff-new">${{cell(f.new)}}</td></tr>`).join('');
-  const table = fields.length
-    ? `<table class="diff"><thead><tr><th>Field</th>`
-      + `<th>Before (round ${{esc(String(c.prior_round))}})</th><th>After</th></tr></thead>`
-      + `<tbody>${{rows}}</tbody></table>`
-    : '<p class="muted small">No structured offer fields changed versus the prior round'
-      + ' (for example a re-evaluation against fresh capacity).</p>';
-  return `<div class="what-changed">
-    <h4>What changed</h4>
-    ${{table}}
-    ${{reasonLinkHtml(v)}}
-  </div>`;
-}}
-function versionHtml(d, v) {{
-  const est = v.estimate;
-  const estHtml = est ? `
-    <table>
-      <tr><th>Base hours</th><td>${{hours(est.base_hours)}}</td><th>Buffer</th><td>${{est.buffer_pct}}%</td>
-          <th>Planning hours</th><td><b>${{hours(est.planning_hours)}}</b></td></tr>
-      <tr><th>Capacity</th><td>${{hours(est.capacity_hours)}}</td><th>List</th><td>${{money(est.list_sgd)}}</td>
-          <th>Floor (internal)</th><td><b>${{money(est.floor_sgd)}}</b></td></tr>
-      <tr><th>Effective rate</th><td>${{money(est.effective_rate_sgd)}}/h</td>
-          <th>Verdict</th><td><b>${{esc(v.verdict)}}</b> ${{esc((v.reason_codes||[]).join(', '))}}</td>
-          <th></th><td></td></tr>
-    </table>` : '<p class="muted small">Not evaluated yet.</p>';
-  const comps = v.comparables ? `
-    <p class="small">Comparables used: ${{esc(v.comparables.used.map(c => c.project_id + ' (' + hours(c.unit_hours) + ' h/video)').join(', ') || 'none')}}<br>
-    Excluded: ${{esc(v.comparables.excluded.map(c => c.project_id + ':' + c.fields.join('+')).join(', ') || 'none')}}</p>` : '';
-  const meta = {{}};
-  (v.option_meta || []).forEach(m => {{ meta[m.option_id] = m; }});
-  const optCards = (v.options || []).map(o => {{
-    const m = meta[o.option_id] || {{}};
-    const rowId = m.option_row_id || '';
-    const phases = (o.phases || []).map((p, i) =>
-      `<li>Phase ${{i+1}}: ${{p.deliverables}} videos by ${{p.deadline}}</li>`).join('');
-    const sel = rowId === v.selected_option_id ? ' selected' : '';
-    const acc = v.accepted_option && v.accepted_option.option_id === rowId
-      ? '<span class="chip ok">Client accepted</span>' : '';
-    return `<div class="card option${{sel}}"><h3>${{esc(m.label || o.option_id)}}</h3>
-      <p class="muted">${{o.deliverables}} videos by ${{o.deadline}}</p>
-      <p class="price">${{money(o.price_sgd)}}</p>
-      ${{phases ? `<ul class="phases">${{phases}}</ul>` : ''}}
-      <p class="small">${{o.caption_versions}} caption versions · ${{o.revision_rounds}} revisions
-        · kind: <code>${{esc(o.option_id)}}</code></p>${{acc}}
-      ${{['draft','checked','published'].includes(v.status) ? `<button type="button" class="ghost" onclick="previewCapacity('${{v.version_id}}','${{rowId}}',this)">What if they book?</button><p role="status" class="small"></p>` : ''}}</div>`;
-  }}).join('');
-  const banner = v.outbound_status === 'blocked'
-    ? `<p class="blocked">Blocked by outbound check</p>`
-    : (v.outbound_status === 'passed' ? `<p class="passed">Outbound check passed</p>` : '');
-  const staleCap = v.capacity_stale
-    ? `<p class="blocked">Capacity changed since this evaluation (another booking was`
-      + ` confirmed). Re-evaluate before releasing — options may no longer fit.</p>` : '';
-  const acceptInfo = v.accepted_option ? `
-    <p class="passed">Client accepted <b>${{esc(v.accepted_option.terms ? v.accepted_option.terms.option_id : '')}}</b>
-    — ${{v.accepted_option.terms ? v.accepted_option.terms.deliverables + ' videos by ' +
-      v.accepted_option.terms.deadline + ' for ' + money(v.accepted_option.terms.price_sgd) : ''}}
-    ${{v.confirmed ? '· booking confirmed' : '· awaiting your confirmation'}}</p>` : '';
-  const canEdit = ['draft','blocked','checked','evaluated'].includes(v.status) && !v.confirmed;
-  const needsCheck = ['draft','blocked','evaluated'].includes(v.status) && !v.confirmed;
-  const canRelease = v.status === 'checked' && !v.confirmed;
-  const previewBtn = (v.status === 'published' || v.status === 'confirmed')
-    ? `<button class="ghost" onclick="openPreview('${{v.version_id}}')">Preview sent proposal</button>` : '';
-  const rotateBtn = (v.status === 'published' || v.status === 'confirmed')
-    ? `<button class="ghost" onclick="doRotate('${{v.version_id}}')">Rotate / reissue client link</button>`
-    : '';
-  return `<div class="vblock">
-    <h3>Version ${{v.version_no}} — ${{statusChip(v.status)}}
-      <span class="muted small">outbound: ${{esc(v.outbound_status)}}</span></h3>
-    ${{estHtml}}${{v.pricing_evidence ? '<p class="small"><b>Historical pricing</b> · '+esc(v.pricing_evidence.status)+' · '+esc((v.pricing_evidence.samples || []).map(p=>p.project_id+' '+money(p.price_sgd)).join(', '))+'</p>' : ''}}${{(v.impacts || []).map(i => '<p class="blocked">Booking changed availability for ' + esc(i.lost.map(o => o.deliverables + ' videos by ' + o.deadline).join(', ')) + '.</p>').join('')}}${{whatChangedHtml(v)}}${{comps}}${{banner}}${{staleCap}}
-    <div class="cards">${{optCards}}</div>
-    ${{acceptInfo}}
-    ${{canEdit ? `<label class="small" for="draft-${{v.version_id}}">Client-facing draft</label><textarea class="draft" id="draft-${{v.version_id}}">${{esc(v.draft)}}</textarea>` : `<p class="quote">${{esc(v.draft)}}</p>`}}
-    <div class="ctl">
-      ${{needsCheck ? `<button onclick="doCheck('${{v.version_id}}')">Run outbound check</button>` : ''}}
-      ${{canEdit ? `<button class="ghost" onclick="doEdit('${{v.version_id}}')">Save revised draft</button>
-        <button class="danger" onclick="doReject('${{v.version_id}}')">Reject</button>` : ''}}
-      ${{canRelease ? `<button onclick="doApprove('${{v.version_id}}')">Release client proposal</button>` : ''}}
-      ${{previewBtn}}${{rotateBtn}}
-    </div>
-    <div id="msg-${{v.version_id}}" role="status" aria-live="polite" class="small msg-line"></div>
-  </div>`;
-}}
+{DASH_JS}
 function msg(id, text) {{
   const el = document.getElementById('msg-' + id);
   if (el) el.textContent = text;
@@ -1941,7 +2188,7 @@ async function doEvaluate(dealId, offerId) {{
   refresh();
 }}
 async function doCheck(id) {{ const r = await api('/api/check', {{version_id: id}});
-  msg(id, r.data.ok ? 'Check passed.' : 'BLOCKED: ' + JSON.stringify(r.data.result.violations));
+  msg(id, r.data.ok ? 'Check passed. Approve and send is unlocked.' : 'Blocked. Fix the draft, then run the check again.');
   refresh(); }}
 async function doEdit(id) {{ const r = await api('/api/draft', {{version_id: id,
   body: document.getElementById('draft-' + id).value}});
