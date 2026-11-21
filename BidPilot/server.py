@@ -4,6 +4,7 @@ Owner routes require a per-launch owner session token; every state-changing
 POST (founder and client token routes) requires a same-origin request.
 """
 import argparse
+import os
 import hashlib
 import html
 import json
@@ -113,6 +114,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Robots-Tag", "noindex, nofollow")
+        self._owner_cookie_header()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -130,6 +132,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Security-Policy", "frame-ancestors 'self'")
         if noindex:
             self.send_header("X-Robots-Tag", "noindex, nofollow")
+        self._owner_cookie_header()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -153,14 +156,39 @@ class Handler(BaseHTTPRequestHandler):
     def query(self):
         return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
 
+    OWNER_COOKIE = "bidpilot_owner"
+
+    def _owner_cookie(self):
+        jar = {}
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            key, _, value = part.strip().partition("=")
+            if key:
+                jar[key] = value
+        return jar.get(self.OWNER_COOKIE)
+
+    def _owner_cookie_header(self):
+        # Set only after a valid token arrived in the URL or header on the
+        # loopback host. HttpOnly + SameSite=Strict, so other sites can't use
+        # it and page scripts can't read it; the public tunnel host never sees
+        # it (different host) and owner_ok refuses that host regardless.
+        if getattr(self, "_issue_owner_cookie", False):
+            self.send_header("Set-Cookie", f"{self.OWNER_COOKIE}={self.server.owner_token};"
+                             " Path=/; HttpOnly; SameSite=Strict")
+            self._issue_owner_cookie = False
+
     def owner_ok(self):
-        """Founder routes need the per-launch owner session token."""
+        """Founder routes need the owner token (URL, header or session cookie)."""
         public = getattr(self.server, "public_origin", None)
         if public and self.headers.get("Host", "").lower() == urllib.parse.urlsplit(public).netloc:
             return False
+        expected = self.server.owner_token.encode("ascii")
         supplied = self.headers.get("X-Owner-Token") or (self.query().get("owner") or [None])[0]
-        return bool(supplied and secrets.compare_digest(
-            supplied.encode("utf-8"), self.server.owner_token.encode("ascii")))
+        if supplied and secrets.compare_digest(supplied.encode("utf-8"), expected):
+            if self._owner_cookie() != self.server.owner_token:
+                self._issue_owner_cookie = True
+            return True
+        cookie = self._owner_cookie()
+        return bool(cookie and secrets.compare_digest(cookie.encode("utf-8"), expected))
 
     def same_origin(self):
         """Require the HTTP origin of the loopback server on every write."""
@@ -2411,12 +2439,37 @@ class StudioServer(ThreadingHTTPServer):
             worker.join(timeout=2)
 
 
-def make_server(db_path, port=0, public_origin=None, embed_origin=None,
-                qwenwork_secret_file=None):
-    """Build a server on loopback with a fresh per-launch owner token.
+def load_owner_token(path):
+    """Reuse the owner token kept in a private local file, creating it once.
 
-    Returns (server, owner_token). The owner token is only shown in the
-    launching console; it is never logged or written to disk.
+    The file lives outside the repository (default ~/.bidpilot/owner_token)
+    with 0600 permissions, so restarting the server keeps the same founder
+    link working.
+    """
+    path = Path(path).expanduser()
+    try:
+        token = path.read_text().strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
+            return token
+    except OSError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    token = secrets.token_urlsafe(24)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(token + "\n")
+    os.chmod(path, 0o600)
+    return token
+
+
+def make_server(db_path, port=0, public_origin=None, embed_origin=None,
+                qwenwork_secret_file=None, owner_token_file=None):
+    """Build a server on loopback with the founder owner token.
+
+    Returns (server, owner_token). Without owner_token_file the token is fresh
+    per launch (tests); with it, the token is read from that private file so
+    it survives restarts. It is never logged to the database or server log
+    beyond the launch line.
     """
     public_origin = https_origin(public_origin) if public_origin else None
     embed_origins = ([https_origin(part.strip()) for part in embed_origin.split(",") if part.strip()]
@@ -2432,7 +2485,8 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
     server.db_path = db_path
     server.public_origin = public_origin
     server.embed_origins = embed_origins
-    server.owner_token = secrets.token_urlsafe(24)
+    server.owner_token = (load_owner_token(owner_token_file) if owner_token_file
+                          else secrets.token_urlsafe(24))
     server.qwenwork_secret = qwenwork_callback.load_secret(qwenwork_secret_file)
     return server, server.owner_token
 
@@ -2443,10 +2497,15 @@ def main():
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--public-origin", type=https_origin, help="HTTPS origin served by the buyer-facing reverse proxy")
     parser.add_argument("--embed-origin", help="Comma-separated HTTPS origins allowed to embed the inquiry (Hashmeta site and any embed shell host)")
+    parser.add_argument("--owner-token-file",
+                        default=os.environ.get("BIDPILOT_OWNER_TOKEN_FILE", "~/.bidpilot/owner_token"),
+                        help="Private file holding the founder token so links survive restarts"
+                             " (use 'none' for a fresh token each launch)")
     parser.add_argument("--qwenwork-secret-file", help="File holding the shared secret for POST /qwenwork/callback (or set BIDPILOT_QWENWORK_SECRET)")
     args = parser.parse_args()
+    token_file = None if str(args.owner_token_file).lower() == "none" else args.owner_token_file
     server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin,
-                                      args.qwenwork_secret_file)
+                                      args.qwenwork_secret_file, owner_token_file=token_file)
     port = server.server_address[1]
     with server:
         print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token}",
