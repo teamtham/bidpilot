@@ -54,12 +54,17 @@ CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, deal_id TEXT,
 CREATE TABLE IF NOT EXISTS allocations (id TEXT PRIMARY KEY, reservation_id TEXT,
   week_ending TEXT, planning_hundredths INTEGER, milestone TEXT, created_at REAL,
   UNIQUE(reservation_id, week_ending));
+CREATE TABLE IF NOT EXISTS inquiry_proposal_links (
+ version_id TEXT PRIMARY KEY, released_hash TEXT NOT NULL, alias_hash TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS capacity_impacts (
+ reservation_id TEXT, version_id TEXT, details TEXT NOT NULL, PRIMARY KEY(reservation_id, version_id));
 CREATE TABLE IF NOT EXISTS capacity_revisions (revision INTEGER PRIMARY KEY,
   seed_hash TEXT, snapshot_json TEXT, created_at REAL);
 """
 
 
 _MIGRATIONS = [
+    ("proposal_versions", "page_json", "ALTER TABLE proposal_versions ADD COLUMN page_json TEXT"),
     ("proposal_versions", "import_option_keys_json",
      "ALTER TABLE proposal_versions ADD COLUMN import_option_keys_json TEXT"),
     ("mcp_operations", "deal_id",
@@ -74,6 +79,10 @@ _MIGRATIONS = [
     # Stage 15: optional manual/scheduled trigger recorded per run step.
     ("run_steps", "trigger",
      'ALTER TABLE run_steps ADD COLUMN "trigger" TEXT'),
+    # Bind inbound retries to the original change payload.
+    ("messages", "payload_hash", "ALTER TABLE messages ADD COLUMN payload_hash TEXT"),
+    # Conversation worker leases: one agent owns an inquiry's pending turns.
+    ("inquiry_jobs", "lease_owner", "ALTER TABLE inquiry_jobs ADD COLUMN lease_owner TEXT"),
 ]
 
 def _ensure_columns(conn):
@@ -102,7 +111,9 @@ def connect(path):
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     try:
-        conn.executescript(SCHEMA)
+        from studio_modules import modules
+        import inquiry_quote
+        conn.executescript(SCHEMA + inquiry_quote.SCHEMA + "".join(module.SCHEMA for module in modules()))
         _ensure_columns(conn)
     except Exception:
         conn.close()
