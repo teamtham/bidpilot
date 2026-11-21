@@ -26,6 +26,7 @@ import commerce
 import conversation
 import estimating
 import portfolio
+import qwenwork_callback
 from studio_modules import modules
 import db
 
@@ -212,6 +213,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if path == qwenwork_callback.PATH:
+            # Server-to-server: authenticated by the shared secret, not origin.
+            return qwenwork_callback.handle(self)
         if not self.same_origin():
             return self.forbidden("same-origin request required")
         if path == "/inquire" or path.startswith("/i/"):
@@ -2309,7 +2313,8 @@ class StudioServer(ThreadingHTTPServer):
             worker.join(timeout=2)
 
 
-def make_server(db_path, port=0, public_origin=None, embed_origin=None):
+def make_server(db_path, port=0, public_origin=None, embed_origin=None,
+                qwenwork_secret_file=None):
     """Build a server on loopback with a fresh per-launch owner token.
 
     Returns (server, owner_token). The owner token is only shown in the
@@ -2330,6 +2335,7 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None):
     server.public_origin = public_origin
     server.embed_origins = embed_origins
     server.owner_token = secrets.token_urlsafe(24)
+    server.qwenwork_secret = qwenwork_callback.load_secret(qwenwork_secret_file)
     return server, server.owner_token
 
 
@@ -2339,8 +2345,10 @@ def main():
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--public-origin", type=https_origin, help="HTTPS origin served by the buyer-facing reverse proxy")
     parser.add_argument("--embed-origin", help="Comma-separated HTTPS origins allowed to embed the inquiry (Hashmeta site and any embed shell host)")
+    parser.add_argument("--qwenwork-secret-file", help="File holding the shared secret for POST /qwenwork/callback (or set BIDPILOT_QWENWORK_SECRET)")
     args = parser.parse_args()
-    server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin)
+    server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin,
+                                      args.qwenwork_secret_file)
     port = server.server_address[1]
     with server:
         print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token}",
