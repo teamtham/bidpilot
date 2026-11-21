@@ -26,6 +26,7 @@ import commerce
 import conversation
 import estimating
 import portfolio
+import qwenwork_callback
 from studio_modules import modules
 import db
 
@@ -212,6 +213,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if path == qwenwork_callback.PATH:
+            # Server-to-server: authenticated by the shared secret, not origin.
+            return qwenwork_callback.handle(self)
         if not self.same_origin():
             return self.forbidden("same-origin request required")
         if path == "/inquire" or path.startswith("/i/"):
@@ -298,7 +302,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "version_id": new_id})
 
         if path == "/api/approve":
-            res = core.approve(self.conn, data["version_id"], data.get("option_id"))
+            res = core.approve(self.conn, data["version_id"], data.get("option_id"),
+                               offered_option_ids=data.get("option_ids"))
             return self.send_json(res, 200 if res["ok"] else 409)
 
         if path == "/api/reject":
@@ -565,7 +570,7 @@ def option_label(kind):
 def render_client_html(conn, version, preview=False):
     """Client-facing page. Only approved public option terms cross the
     boundary: no floor, capacity, internal metrics or other client names."""
-    option_rows = core.options_of(conn, version)
+    option_rows = core.offered_options_of(conn, version)
     selected = version["selected_option_id"]
     selected_terms = next((db.uj(r["public_terms_json"]) for r in option_rows
                            if r["id"] == selected), None)
@@ -835,6 +840,51 @@ def _offer_comparison(offer_map, version_offer, v):
             "prior_offer_id": prior_id, "changed_fields": changed, "offer": cur_offer}
 
 
+_SIMILAR_STOP = {"a", "an", "and", "the", "of", "for", "by", "to", "in", "on", "with", "our",
+                 "we", "s", "sgd", "budget", "video", "videos", "one", "two", "three", "dec", "nov"}
+
+
+def similar_work(conn, deal, versions):
+    """Founder-only: rank shared portfolio pieces against this deal.
+
+    Pieces from the engine's own comparable past jobs rank first, then pieces
+    whose title/tags share words with the inquiry and format. Read-only.
+    """
+    try:
+        rows = conn.execute("SELECT id, project_id, title, description, tags FROM portfolio_assets"
+                            " WHERE shared=1 ORDER BY title").fetchall()
+    except sqlite3.Error:
+        return []
+    latest = versions[-1] if versions else {}
+    used = {c.get("project_id") for c in ((latest.get("comparables") or {}).get("used") or [])}
+    offer_row = conn.execute("SELECT offer_json FROM offers WHERE deal_id=? ORDER BY round DESC LIMIT 1",
+                             (deal["id"],)).fetchone()
+    offer = db.uj(offer_row["offer_json"]) if offer_row else {}
+    def words_of(text):
+        return set(re.findall(r"[a-z]+", text.casefold().replace("é", "e"))) - _SIMILAR_STOP
+    brief = words_of((deal["raw_inquiry"] or "") + " " + (deal["client"] or ""))
+    fmt = words_of(str((offer or {}).get("format") or "").replace("_", " "))
+    words = brief | fmt
+    ranked = []
+    for r in rows:
+        tags = set(re.findall(r"[a-z]+", (r["tags"] + " " + r["title"]).casefold().replace("é", "e")))
+        hits = sorted(words & tags)
+        past = r["project_id"] in used
+        score = (3 if past else 0) + 2 * len(brief & tags) + len(fmt & tags)
+        if past and hits:
+            reason = "Picked from your portfolio: a similar past job, also " + ", ".join(hits[:3])
+        elif past:
+            reason = "Picked from your portfolio: one of the similar past jobs behind this estimate"
+        elif hits:
+            reason = "Picked from your portfolio: matches " + ", ".join(hits[:3])
+        else:
+            reason = "From your portfolio library (no close match yet)"
+        ranked.append((score, {"asset_id": r["id"], "project_id": r["project_id"],
+                               "title": r["title"], "reason": reason}))
+    ranked.sort(key=lambda pair: -pair[0])
+    return [item for _, item in ranked]
+
+
 def state(conn):
     panel = capacity_panel(conn)
     current_revision = panel["revision"]
@@ -874,6 +924,7 @@ def state(conn):
                 "version_id": v["id"], "version_no": v["version_no"], "status": v["status"],
                 "outbound_status": v["outbound_status"], "draft": v["draft_body"],
                 "selected_option_id": v["selected_option_id"],
+                "offered_option_ids": db.uj(v["offered_option_ids_json"]) if "offered_option_ids_json" in v.keys() and v["offered_option_ids_json"] else None,
                 "published": v["status"] in ("published", "confirmed"),
                 "accepted_at": v["accepted_at"],
                 "accepted_option": accepted_option,
@@ -934,7 +985,8 @@ def state(conn):
                       "versions": versions, "offers": offers,
                       "steps": steps, "agent_outputs": agent_outputs,
                       "messages": messages, "approvals": approvals,
-                      "queued_clarifications": queued, "needs_information": needs_info})
+                      "queued_clarifications": queued, "needs_information": needs_info,
+                      "similar_work": similar_work(conn, deal, versions)})
     inbox = [{"source_id": r["source_id"], "fields": db.uj(r["fields_json"]),
               "received_at": r["received_at"], "claimed": bool(r["deal_id"])}
              for r in conn.execute("SELECT i.*, d.id AS deal_id FROM inbox i LEFT JOIN deals d ON d.source=i.source AND d.source_id=i.source_id ORDER BY i.received_at DESC").fetchall()]
@@ -1223,118 +1275,131 @@ _FIXTURES_JSON = json.dumps([
 
 
 DASH_STYLE = r"""
-:root { --bg: #faf7f3; --surface: #ffffff; --border: #e4dcd3; --border-strong: #d6c9bc;
-  --text: #2a1f1a; --muted: #7a6c63; --accent: #7b4b2f; --accent-strong: #5e3720; --accent-soft: #f1e9e1;
-  --danger: #b3261e; --danger-bg: #fbe4e2; --danger-border: #efbcb7;
-  --ok: #2c7a3f; --ok-bg: #e4f3e7; --ok-border: #b7dcc0; --warn: #a2620a; --warn-bg: #fbf0dc; --warn-border: #ecd29f;
-  --neutral-bg: #f4efe9; --neutral-text: #5a4a40; --radius: 10px; --radius-sm: 6px; --shadow: none;
-  --font: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
-  --display: "Newsreader", "Iowan Old Style", Georgia, serif; --dark: #3a2a21; }
-body { font-size: 15px; line-height: 1.5; background: var(--bg); }
+/* Founder dashboard: values copied from the Alex Studio wireframe (Scenes 3 and 5). */
+:root { --b-bg: #f3f5f7; --b-panel: #ffffff; --b-ink: #1d2430; --b-mute: #64707e; --b-line: #dde2e8;
+  --b-teal: #146c62; --b-teal-tint: #e2f1ee;
+  --ok: #2c7a3f; --ok-tint: #e4f3e7; --warn: #a2620a; --warn-tint: #fbf0dc; --bad: #b3261e; --bad-tint: #fbe4e2;
+  --ui: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  /* shared design-system tokens re-pointed at the wireframe palette */
+  --bg: var(--b-bg); --surface: #fff; --border: var(--b-line); --border-strong: #c9d0d7; --text: var(--b-ink);
+  --muted: var(--b-mute); --accent: var(--b-teal); --accent-strong: #0f574f; --accent-soft: var(--b-teal-tint);
+  --danger: var(--bad); --danger-bg: var(--bad-tint); --danger-border: #f1c0bb; --ok-bg: var(--ok-tint);
+  --ok-border: #bfdcc6; --warn-bg: var(--warn-tint); --warn-border: #ecd5a6; --neutral-bg: #eef1f4;
+  --neutral-text: #4b5663; --radius: 10px; --radius-sm: 8px; --shadow: none; --font: var(--ui); }
+body { background: var(--b-bg); color: var(--b-ink); font: 15px/1.5 var(--ui); -webkit-font-smoothing: antialiased; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.tiny { font-size: 12px; color: var(--muted); margin: 0; }
-button { border-radius: 6px; font: 600 13.5px/1.2 var(--font); padding: 9px 14px; }
-button.ghost { background: #fff; color: var(--text); border-color: var(--border); }
-button.ghost:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
-button:disabled, button:disabled:hover { background: var(--accent); border-color: var(--accent); opacity: .42; }
-.badge { background: var(--accent-soft); color: var(--accent); border-color: var(--border); }
-.badge.dim { background: #fff; color: var(--muted); }
-.app-header { background: #fff; border-bottom: 1px solid var(--border); padding: 10px 22px; }
-.brand-lockup { font: 700 15px var(--font); letter-spacing: 0; }
-.brand-mark { background: var(--accent); width: 18px; height: 18px; border-radius: 5px; }
-.brand-mark:before, .brand-mark:after { display: none; }
-.founder-shell { max-width: 1440px; grid-template-columns: 250px minmax(0, 1fr); }
-.deal-sidebar { padding: 18px 14px; gap: 10px; background: #fff; }
-.deal-sidebar h6 { margin: 8px 0 0; padding: 0 2px; font: 600 12px var(--font); color: var(--muted);
-  display: flex; justify-content: space-between; letter-spacing: 0; text-transform: none; }
-.deal-sidebar h6 span { font-variant-numeric: tabular-nums; }
-.deal-queue { display: grid; gap: 8px; margin: 0; }
-.rail-deal { display: grid; gap: 3px; width: 100%; text-align: left; background: #fff; color: var(--text);
-  border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font: 400 12.5px/1.35 var(--font); }
-.rail-deal:hover { background: #fff; border-color: var(--accent); color: var(--text); }
-.rail-deal.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
-.rail-deal b { font-size: 13px; }
-.dmeta { color: var(--muted); }
-.st { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
-  justify-self: start; white-space: nowrap; }
-.st.big { font-size: 12.5px; padding: 3px 11px; }
-.st.rev { background: var(--warn-bg); color: var(--warn); }
-.st.ok { background: var(--ok-bg); color: var(--ok); }
-.st.bad { background: var(--danger-bg); color: var(--danger); }
-.st.new { background: var(--accent-soft); color: var(--accent); }
-.st.mute { background: var(--neutral-bg); color: var(--muted); }
-.said { margin: 0; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-  background: var(--accent-soft); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
-.said small { display: block; margin-top: 6px; color: var(--muted); font-size: 11.5px; }
-.week { display: grid; gap: 6px; font-size: 12.5px; color: var(--text); }
-.studio-nav { margin-top: 0; }
-.studio-nav a { font-size: 13px; color: var(--accent); text-decoration: none; padding: 4px 2px; }
-.studio-nav a:hover { text-decoration: underline; }
-.sidebar-sync { margin: 8px 2px 0; }
-.meter { height: 10px; border-radius: 5px; background: var(--accent-soft); position: relative; overflow: hidden; }
-.meter i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 5px; }
-.meter.over i { background: var(--danger); }
-.workspace-main { padding: 18px 26px 60px; }
-.workspace-toolbar, .operator-tools, .workbench { max-width: 1060px; }
-.main-head { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; margin: 6px 0 16px; }
-.workbench h1 { font: 500 30px/1.15 var(--display); letter-spacing: -.01em; margin: 0; }
-.workbench-subtitle { font-size: 13.5px; }
-.next-step { border-radius: 10px; padding: 14px 16px; margin: 0 0 16px; background: #fff; }
-.next-step h2 { font: 500 20px/1.2 var(--display); margin: 2px 0 4px; }
-.next-step-label { letter-spacing: .04em; }
-.panel { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 16px;
-  display: grid; gap: 12px; min-width: 0; align-content: start; margin: 0 0 16px; }
-.panel h5 { margin: 0; font: 600 13px var(--font); color: var(--muted); }
-.panel-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+button { font: 600 13.5px var(--ui); border-radius: 7px; padding: 10px 16px; }
+button.ghost { background: #fff; color: var(--b-ink); border: 1px solid var(--b-line); }
+button.ghost:hover { background: #f6f2ee; border-color: var(--b-line); color: var(--b-ink); }
+.founder-shell.dash { max-width: none; min-height: 100vh; margin: 0; padding: 0; display: grid;
+  grid-template-columns: 230px minmax(0, 1fr); background: var(--b-bg); color: var(--b-ink); }
+.side { background: var(--b-panel); border-right: 1px solid var(--b-line); padding: 14px; display: grid;
+  align-content: start; gap: 10px; }
+.side .logo { font: 700 15px var(--ui); display: flex; align-items: center; gap: 8px; }
+.side .logo i { width: 18px; height: 18px; border-radius: 5px; background: var(--b-teal); display: inline-block; }
+.side h6 { margin: 8px 0 0; font: 600 12px var(--ui); color: var(--b-mute); }
+.deal-queue { display: grid; gap: 10px; margin: 0; }
+button.rail-deal { border: 1px solid var(--b-line); border-radius: 8px; padding: 9px 10px; display: grid; gap: 3px;
+  font: 400 12.5px/1.45 var(--ui); background: #fff; color: var(--b-ink); text-align: left; width: 100%; }
+button.rail-deal:hover { background: #fff; border-color: var(--b-teal); color: var(--b-ink); }
+button.rail-deal.sel { border-color: var(--b-teal); box-shadow: inset 3px 0 0 var(--b-teal); }
+button.rail-deal b { font-size: 13px; }
+.dmeta { color: var(--b-mute); }
+.st { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; justify-self: start; white-space: nowrap; }
+.st.rev { background: var(--warn-tint); color: var(--warn); }
+.st.ok { background: var(--ok-tint); color: var(--ok); }
+.st.bad { background: var(--bad-tint); color: var(--bad); }
+.st.new { background: var(--b-teal-tint); color: var(--b-teal); }
+.st.mute { background: var(--neutral-bg); color: var(--b-mute); }
+.said { margin: 0; border: 1px solid var(--b-line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px;
+  line-height: 1.55; background: #fbfcfd; overflow-wrap: anywhere; }
+.said small { display: block; margin-top: 6px; font-size: 11.5px; color: var(--b-mute); }
+.week { display: grid; gap: 6px; font-size: 12px; color: var(--b-mute); }
+.side-foot { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--b-line); display: grid; gap: 8px;
+  font-size: 11.5px; color: var(--b-mute); }
+.side-foot summary { cursor: pointer; font-weight: 600; }
+.side-foot nav { display: grid; gap: 4px; margin-top: 6px; }
+.side-foot a { color: var(--b-teal); text-decoration: none; }
+.side-foot a:hover { text-decoration: underline; }
+.main { padding: 18px 20px; min-width: 0; }
+.workbench { max-width: none; margin: 0; display: grid; gap: 16px; }
+.main-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+.main-head h4 { margin: 0; font: 600 19px var(--ui); }
+.main-head .st { font-size: 12px; }
+.panel { background: var(--b-panel); border: 1px solid var(--b-line); border-radius: 10px; padding: 14px;
+  display: grid; gap: 10px; min-width: 0; align-content: start; }
+.panel h5 { margin: 0; font: 600 13px var(--ui); color: var(--b-mute); }
+.figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .fig { display: grid; gap: 2px; }
-.fig small { font-size: 12px; color: var(--muted); }
-.fig b { font: 600 20px var(--font); font-variant-numeric: tabular-nums; }
-.fig.priv b::after { content: " private"; font: 600 10px var(--font); color: var(--muted); vertical-align: middle; }
-.meterwrap { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); }
-.warns, .warns.reason-links { display: grid; gap: 8px; margin: 0; padding: 0; }
-.warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px;
-  background: var(--danger-bg); color: var(--danger); font-size: 13.5px; }
-.warn b, .check b { display: block; }
-.wi { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--danger); color: #fff;
-  font: 700 12px/20px var(--font); text-align: center; margin-top: 1px; }
-.two { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.two .panel { margin: 0 0 16px; }
+.fig small { font-size: 11.5px; color: var(--b-mute); }
+.fig b { font: 600 18px var(--ui); font-variant-numeric: tabular-nums; }
+.fig.priv b::after { content: " private"; font: 600 10px var(--ui); color: var(--b-mute); vertical-align: middle; }
+.meterwrap { display: grid; gap: 6px; font-size: 12px; color: var(--b-mute); }
+.meter { height: 10px; border-radius: 5px; background: var(--b-line); position: relative; overflow: hidden; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--b-teal); }
+.meter.over i { background: var(--bad); }
+.warns, .warns.reason-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; }
+.warn { display: grid; grid-template-columns: 22px 1fr; gap: 10px; background: var(--bad-tint); color: var(--bad);
+  border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; }
+.warn b { display: block; font-size: 13.5px; }
+.wi { width: 22px; height: 22px; border-radius: 50%; background: var(--bad); color: #fff; font: 700 13px/22px var(--ui); text-align: center; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
 .olist { display: grid; gap: 8px; }
-.orow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start;
-  font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fff; }
-.orow.selected { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.oprice { font-size: 15px; font-variant-numeric: tabular-nums; }
-.whatif { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.whatif button { padding: 5px 10px; font-size: 12px; }
-.whatif p { margin: 0; }
-textarea.draft, div.draft, .workbench .draft { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-  font: 13.5px/1.55 var(--font); background: #fcfaf8; min-height: 120px; white-space: pre-wrap; width: 100%; margin: 0; color: var(--text); }
+.orow { display: grid; grid-template-columns: 150px 1fr auto; gap: 10px; align-items: center; font-size: 13px;
+  border: 1px solid var(--b-line); border-radius: 8px; padding: 8px 10px; background: #fff; }
+.orow.one { grid-template-columns: 1fr auto; }
+.orow b { font-variant-numeric: tabular-nums; }
+.orow .m { color: var(--b-mute); }
+.orow.ck { cursor: pointer; }
+.orow.ck input { accent-color: var(--b-teal); margin: 0 4px 0 0; vertical-align: -2px; }
+.orow.ck:has(input:not(:checked)) { opacity: .5; }
+.orow.picked { border-color: var(--b-teal); }
+.hint { font-size: 12px; color: var(--b-mute); margin: 0; }
+textarea.draft, div.draft, .workbench .draft { display: block; width: 100%; margin: 0; min-height: 0; border: 1px solid var(--b-line);
+  border-radius: 8px; padding: 10px 12px; font: 13px/1.55 var(--ui); color: var(--b-ink); background: #fbfcfd;
+  resize: none; field-sizing: content; white-space: pre-wrap; }
 textarea.draft[readonly] { cursor: default; }
-textarea.draft:not([readonly]) { background: #fff; border-color: var(--accent); }
-.check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 8px; }
-.check.ok { background: var(--ok-bg); color: var(--ok); }
-.check.bad { background: var(--danger-bg); color: var(--danger); }
-.check.wait { background: var(--neutral-bg); color: var(--muted); }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.passed, .blocked, .needs-info { border-radius: 8px; border-left-width: 1px; font-size: 13.5px; }
-.what-changed { border-left: 1px solid var(--border); background: #fff; }
-table.diff th { background: transparent; }
-th { background: var(--neutral-bg); }
-.workbench details { border-radius: 10px; }
-.workbench details > summary { font-size: 13.5px; font-weight: 600; }
-.quote { border-left-color: var(--accent); background: var(--accent-soft); font-style: normal; color: var(--text); }
-.release-panel { background: var(--dark); color: #f6efe8; border-radius: 10px; }
-.release-panel input { background: #2a1d16; color: #f6efe8; border-color: #5a4334; }
-.release-panel button { background: var(--accent); border-color: var(--accent); }
-.release-panel button.ghost { background: transparent; color: #f6efe8; border-color: #5a4334; }
-@media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
-@media (max-width: 780px) { .figs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+textarea.draft:not([readonly]) { outline: 2px solid var(--b-teal); background: #fff; }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+.check b { display: block; }
+.check.ok { background: var(--ok-tint); color: var(--ok); }
+.check.bad { background: var(--bad-tint); color: var(--bad); }
+.check.wait { background: #eef1f4; color: var(--b-mute); }
+.checks-stack { display: grid; gap: 10px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.panel .row { margin-top: auto; }
+.bbtn { display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; padding: 10px 16px;
+  font: 600 13.5px var(--ui); border: 1px solid var(--b-line); background: #fff; color: var(--b-ink); white-space: nowrap; cursor: pointer; }
+.bbtn:hover { background: #f6f2ee; border-color: var(--b-line); color: var(--b-ink); }
+.bbtn.p, .bbtn.p:hover { background: var(--b-teal); border-color: var(--b-teal); color: #fff; }
+.bbtn:disabled, .bbtn:disabled:hover { opacity: .45; cursor: not-allowed; }
+.bbtn.p:disabled, .bbtn.p:disabled:hover { background: var(--b-teal); border-color: var(--b-teal); }
+.bbtn.danger { color: var(--bad); }
+.bbtn.sm { padding: 6px 10px; }
+.helper { font-size: 12px; color: var(--b-mute); margin: 0; }
+.msg-line:empty { display: none; }
+.needs-info { margin: 0; }
+.workbench details { background: #fff; border: 1px solid var(--b-line); border-radius: 10px; margin: 0; }
+.workbench details > summary { font: 600 13px var(--ui); color: var(--b-mute); padding: 11px 14px; }
+.workbench details[open] > summary { border-bottom: 1px solid var(--b-line); }
+.extras { display: grid; gap: 8px; margin-top: 8px; }
+.operator-tools { max-width: none; margin: 28px 0 0; }
+.release-panel { margin: 0 0 16px; border-radius: 10px; background: #0f574f; }
+th { background: #eef1f4; }
+.quote { border-left-color: var(--b-teal); background: var(--b-teal-tint); font-style: normal; color: var(--b-ink); }
+@media (max-width: 900px) {
+  .founder-shell.dash { grid-template-columns: 1fr; }
+  .side { border-right: 0; border-bottom: 1px solid var(--b-line); }
+  .figs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .two, .warns, .warns.reason-links { grid-template-columns: 1fr; }
+  .orow { grid-template-columns: 1fr auto; }
+  .orow .m { grid-column: 1 / -1; order: 3; }
+}
 """
 
 DASH_JS = r"""
 let latestCapacity = null;
-const SOURCE_LABELS = {hashmeta: 'Hashmeta', site: 'Website chat', manual: 'Added by you'};
+const SOURCE_LABELS = {hashmeta: 'Hashmeta form', site: 'Hashmeta chat', manual: 'Added by you'};
 const FORMAT_LABELS = {product_promo: 'promo video', social_reel: 'social reel',
   testimonial: 'testimonial', event_recap: 'event recap', explainer: 'explainer'};
 const FIELD_LABELS = {deliverables: 'Videos', caption_versions: 'Captioned versions',
@@ -1376,68 +1441,6 @@ function dealStage(d) {
   if (v.verdict === 'clarify') return ['Needs your estimate', 'rev'];
   return ['Ready for review', 'rev'];
 }
-function verdictChip(d, v) {
-  if (v && v.verdict === 'accept') return '<span class="st ok big">Fits as asked</span>';
-  if (v && v.verdict === 'counter') return '<span class="st bad big">Doesn’t fit as asked</span>';
-  if (v && v.verdict) return '<span class="st rev big">Needs your estimate</span>';
-  const [label, tone] = dealStage(d);
-  return '<span class="st ' + tone + ' big">' + esc(label) + '</span>';
-}
-function railDeal(d) {
-  const [label, tone] = dealStage(d);
-  const v = latestVersion(d);
-  const changed = v && v.version_no > 1 && d.messages.some(m => m.direction === 'inbound');
-  const when = clock(lastActivity(d));
-  const meta = (changed ? 'Change requested' : (SOURCE_LABELS[d.source] || d.source)) + (when ? ', ' + when : '');
-  const sel = d.deal_id === selectedDealId ? ' sel' : '';
-  return `<button type="button" class="rail-deal${sel}" onclick="selectDeal('${d.deal_id}')">
-    <b>${esc(d.client)}</b><span class="dmeta">${esc(meta)}</span><span class="st ${tone}">${esc(label)}</span></button>`;
-}
-function weekHtml() {
-  const weeks = (latestCapacity && latestCapacity.weeks) || [];
-  if (!weeks.length) return '<span>No capacity calendar yet.</span>';
-  const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Singapore'});
-  const w = weeks.find(x => x.week >= today) || weeks[0];
-  const pct = w.budget_hours > 0 ? Math.max(0, Math.min(100, w.remaining_hours / w.budget_hours * 100)) : 0;
-  return `<span>${hours(w.remaining_hours)} h free of ${hours(w.budget_hours)} h</span>
-    <div class="meter"><i style="width:${pct.toFixed(0)}%"></i></div>
-    <span class="tiny">Week ending ${esc(shortDate(w.week))}</span>`;
-}
-function clientSaidHtml(d) {
-  const inbound = d ? d.messages.filter(m => m.direction === 'inbound') : [];
-  if (!inbound.length) return '';
-  const m = inbound[inbound.length - 1];
-  return `<h6>Client said</h6><blockquote class="said">“${esc(m.body)}”
-    <small>Client text. Treated as a request, not an approval.</small></blockquote>`;
-}
-function renderWorkspace(deals) {
-  const queue = document.getElementById('deal-queue');
-  const progress = document.getElementById('deal-progress');
-  const root = document.getElementById('root');
-  const attention = deals.filter(needsAttention);
-  const others = deals.filter(d => !needsAttention(d));
-  document.getElementById('attention-count').textContent = attention.length;
-  document.getElementById('active-count').textContent = others.filter(d => d.status !== 'closed').length;
-  document.getElementById('week-capacity').innerHTML = weekHtml();
-  if (!deals.length) {
-    queue.innerHTML = '<p class="small">Nothing needs you right now.</p>';
-    progress.innerHTML = '';
-    document.getElementById('client-said').innerHTML = '';
-    root.className = 'empty-state';
-    root.innerHTML = '<span class="big">·</span><h2>No inquiries yet</h2><p class="muted">New Hashmeta inquiries will appear here after QwenWork claims them.</p>';
-    return;
-  }
-  const byRecent = (a, b) => lastActivity(b) - lastActivity(a);
-  attention.sort(byRecent); others.sort(byRecent);
-  if (!selectedDealId || !deals.some(d => d.deal_id === selectedDealId))
-    selectedDealId = (attention[0] || others[0]).deal_id;
-  queue.innerHTML = attention.map(railDeal).join('') || '<p class="small">Nothing needs you right now.</p>';
-  progress.innerHTML = others.map(railDeal).join('') || '<p class="small">Nothing else in progress.</p>';
-  const d = deals.find(x => x.deal_id === selectedDealId);
-  document.getElementById('client-said').innerHTML = clientSaidHtml(d);
-  root.className = '';
-  root.innerHTML = dealHtml(d);
-}
 function plainReasons(v, offer) {
   const est = v.estimate || {};
   const due = shortDate(offer.deadline) || 'the deadline';
@@ -1473,31 +1476,6 @@ function reasonLinkHtml(items) {
   return '<div class="warns reason-links">' + items.map(([t, x]) =>
     `<div class="warn"><span class="wi" aria-hidden="true">!</span><span><b>${esc(t)}</b>${esc(x)}</span></div>`).join('') + '</div>';
 }
-function estimatePanel(d, v) {
-  const offer = (v.comparison && v.comparison.offer && Object.keys(v.comparison.offer).length) ? v.comparison.offer : dealOffer(d);
-  const reasons = plainReasons(v, offer);
-  const est = v.estimate;
-  if (!est) return reasons.length ? `<section class="panel"><h5>Why this needs you</h5>${reasonLinkHtml(reasons)}</section>` : '';
-  const due = shortDate(offer.deadline);
-  const over = est.planning_hours > est.capacity_hours;
-  const pct = est.capacity_hours > 0 ? Math.min(100, est.planning_hours / est.capacity_hours * 100) : 100;
-  const used = (v.comparables && v.comparables.used) || [];
-  const basis = used.length ? `Based on ${used.length} similar past job${used.length === 1 ? '' : 's'}` : 'No similar past jobs on file';
-  const heading = v.verdict === 'counter' ? 'Why this needs a counter offer' : 'Engine estimate, private to you';
-  const pricing = v.pricing_evidence && (v.pricing_evidence.samples || []).length
-    ? `<span>Past prices: ${esc(v.pricing_evidence.samples.map(p => money0(p.price_sgd)).join(', '))}</span>` : '';
-  return `<section class="panel estimate"><div class="panel-top"><h5>${heading}</h5>${v.verdict === 'counter' ? '<span class="tiny">Engine estimate, private to you</span>' : ''}</div>
-    <div class="figs">
-      <div class="fig"><small>Hours needed</small><b>${hrs(est.planning_hours)}</b></div>
-      <div class="fig"><small>Free hours before ${esc(due || 'the deadline')}</small><b>${hrs(est.capacity_hours)}</b></div>
-      <div class="fig"><small>List price</small><b>${money(est.list_sgd)}</b></div>
-      <div class="fig priv"><small>Lowest you’d accept</small><b>${money(est.floor_sgd)}</b></div>
-    </div>
-    <div class="meterwrap"><span>Hours needed vs free hours</span>
-      <div class="meter${over ? ' over' : ''}"><i style="width:${pct.toFixed(0)}%"></i></div>
-      <span>Works out to ${money(est.effective_rate_sgd)} an hour. ${basis}, plus ${esc(est.buffer_pct)}% extra time for surprises.</span>${pricing}</div>
-    ${reasonLinkHtml(reasons)}</section>`;
-}
 function whatChangedHtml(v) {
   const c = v.comparison;
   if (!c || !c.is_revision) return '';
@@ -1521,9 +1499,10 @@ function draftLeak(v) {
     Number(n).toLocaleString('en-SG', {minimumFractionDigits: 2, maximumFractionDigits: 2}),
     Number(n).toFixed(2), String(Number(n))];
   const floorHit = forms(est.floor_sgd).find(f => text.includes(f));
-  if (floorHit) return ['Blocked: this draft shows your minimum price', `Take out “${floorHit}” before it can go to the client.`];
+  const shown = f => text.includes('S$' + f) ? 'S$' + f : f;
+  if (floorHit) return ['Blocked: this draft shows your minimum price', `Take out "${shown(floorHit)}" before it can go to the client.`];
   const hourHit = forms(est.planning_hours).concat(forms(est.capacity_hours)).find(f => f.includes('.') && text.includes(f));
-  if (hourHit) return ['Blocked: this draft shows your hours', `Take out “${hourHit}” before it can go to the client.`];
+  if (hourHit) return ['Blocked: this draft shows your hours', `Take out "${hourHit}" before it can go to the client.`];
   return ['Blocked: this draft has something private in it', 'Take out internal numbers or other client names, then run the check again.'];
 }
 function checkRow(kind, title, text) {
@@ -1538,64 +1517,199 @@ function checkRows(v) {
   return checkRow('wait', 'Safe to send', 'Not checked yet. Run the check before this can go out.')
     + checkRow('wait', 'Price matches the estimate', 'Not checked yet.');
 }
+
+const NUM_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+const offeredSel = {};
+const cleanDrafts = {};
+const similarPick = {};
+function oneDecimal(v) { return String(Number(Number(v).toFixed(1))); }
+function verdictChip(d, v) {
+  if (v && v.verdict === 'accept') return '<span class="st ok">Fits as asked</span>';
+  if (v && v.verdict === 'counter') return '<span class="st bad">Doesn’t fit as asked</span>';
+  if (v && v.verdict) return '<span class="st rev">Needs your estimate</span>';
+  const [label, tone] = dealStage(d);
+  return '<span class="st ' + tone + '">' + esc(label) + '</span>';
+}
+function railMeta(d) {
+  const v = latestVersion(d);
+  const when = clock(lastActivity(d));
+  if (v && (v.status === 'confirmed' || v.confirmed)) return 'Booked' + (when ? ', ' + when : '');
+  if (v && v.status === 'published') return 'Proposal sent';
+  const changed = v && v.version_no > 1 && d.messages.some(m => m.direction === 'inbound');
+  return (changed ? 'Change requested' : (SOURCE_LABELS[d.source] || d.source)) + (when ? ', ' + when : '');
+}
+function railDeal(d) {
+  const [label, tone] = dealStage(d);
+  const sel = d.deal_id === selectedDealId ? ' sel' : '';
+  return `<button type="button" class="rail-deal${sel}" onclick="selectDeal('${d.deal_id}')"><b>${esc(d.client)}</b><span class="dmeta">${esc(railMeta(d))}</span><span class="st ${tone}">${esc(label)}</span></button>`;
+}
+function weekHtml() {
+  const weeks = (latestCapacity && latestCapacity.weeks) || [];
+  if (!weeks.length) return '<span>No capacity calendar yet.</span>';
+  const today = new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Singapore'});
+  const w = weeks.find(x => x.week >= today) || weeks[0];
+  const pct = w.budget_hours > 0 ? Math.max(0, Math.min(100, w.remaining_hours / w.budget_hours * 100)) : 0;
+  return `<span>${oneDecimal(w.remaining_hours)} h free of ${oneDecimal(w.budget_hours)} h</span><div class="meter"><i style="width:${pct.toFixed(0)}%"></i></div>`;
+}
+function clientSaidHtml(d) {
+  const inbound = d ? d.messages.filter(m => m.direction === 'inbound') : [];
+  if (!inbound.length) return '';
+  const m = inbound[inbound.length - 1];
+  return `<h6>Client said</h6><div class="said">"${esc(m.body)}"<small>Client text. Treated as a request, not an approval.</small></div>`;
+}
+function renderWorkspace(deals) {
+  const queue = document.getElementById('deal-queue');
+  const progress = document.getElementById('deal-progress');
+  const root = document.getElementById('root');
+  const attention = deals.filter(needsAttention);
+  const others = deals.filter(d => !needsAttention(d));
+  document.getElementById('week-capacity').innerHTML = weekHtml();
+  if (!deals.length) {
+    queue.innerHTML = '<p class="hint">Nothing needs you right now.</p>';
+    progress.innerHTML = '<p class="hint">Nothing in progress.</p>';
+    document.getElementById('client-said').innerHTML = '';
+    root.className = 'empty-state';
+    root.innerHTML = '<span class="big">·</span><h2>No inquiries yet</h2><p class="muted">New Hashmeta inquiries will appear here after QwenWork claims them.</p>';
+    return;
+  }
+  const byRecent = (a, b) => lastActivity(b) - lastActivity(a);
+  attention.sort(byRecent); others.sort(byRecent);
+  if (!selectedDealId || !deals.some(d => d.deal_id === selectedDealId))
+    selectedDealId = (attention[0] || others[0]).deal_id;
+  queue.innerHTML = attention.map(railDeal).join('') || '<p class="hint">Nothing needs you right now.</p>';
+  progress.innerHTML = others.map(railDeal).join('') || '<p class="hint">Nothing in progress.</p>';
+  const d = deals.find(x => x.deal_id === selectedDealId);
+  document.getElementById('client-said').innerHTML = clientSaidHtml(d);
+  root.className = '';
+  root.innerHTML = dealHtml(d);
+}
+function estimatePanel(d, v) {
+  const offer = (v.comparison && v.comparison.offer && Object.keys(v.comparison.offer).length) ? v.comparison.offer : dealOffer(d);
+  const reasons = plainReasons(v, offer);
+  const est = v.estimate;
+  if (!est) return reasons.length ? `<div class="panel"><h5>Why this needs you</h5>${reasonLinkHtml(reasons)}</div>` : '';
+  const due = shortDate(offer.deadline);
+  const over = est.planning_hours > est.capacity_hours;
+  const pct = est.capacity_hours > 0 ? Math.min(100, est.planning_hours / est.capacity_hours * 100) : 100;
+  const used = (v.comparables && v.comparables.used) || [];
+  const basis = used.length ? `Based on ${used.length} similar past job${used.length === 1 ? '' : 's'}` : 'No similar past jobs on file';
+  const counter = v.verdict === 'counter';
+  const figs = `<div class="figs">
+      <div class="fig"><small>Hours needed</small><b>${hrs(est.planning_hours)}</b></div>
+      <div class="fig"><small>Free hours before ${esc(due || 'the deadline')}</small><b>${hrs(est.capacity_hours)}</b></div>
+      <div class="fig"><small>List price</small><b>${money(est.list_sgd)}</b></div>
+      <div class="fig priv"><small>Lowest you'd accept</small><b>${money(est.floor_sgd)}</b></div></div>`;
+  if (counter) return `<div class="panel"><h5>Why this needs a counter offer</h5>${figs}
+    <div class="meter${over ? ' over' : ''}"><i style="width:${pct.toFixed(0)}%"></i></div>${reasonLinkHtml(reasons)}</div>`;
+  return `<div class="panel"><h5>Engine estimate, private to you</h5>${figs}
+    <div class="meterwrap"><span>Hours needed vs free hours</span><div class="meter${over ? ' over' : ''}"><i style="width:${pct.toFixed(0)}%"></i></div>
+    <span>Works out to ${money(est.effective_rate_sgd)} an hour. ${basis}, plus ${esc(est.buffer_pct)}% extra time for surprises.</span></div>
+    ${reasonLinkHtml(reasons)}</div>`;
+}
+function optionName(key, o, fallback) {
+  if (key === 'as_offered') return 'As offered';
+  if (key === 'hold_date') return 'Keep the date';
+  if (key === 'hold_budget') return 'Keep the budget';
+  if (key === 'hold_scope') return 'Keep all ' + (NUM_WORDS[o.deliverables] || o.deliverables);
+  if (key === 'phased') return 'Phased';
+  return fallback || String(key).replace(/_/g, ' ');
+}
+function optionDesc(o) {
+  if ((o.phases || []).length > 1) return o.phases.map((p, i) => p.deliverables + (i ? ' more' : '') + ' by ' + shortDate(p.deadline)).join(', ');
+  return o.deliverables + ' video' + (o.deliverables === 1 ? '' : 's') + ' by ' + shortDate(o.deadline);
+}
+function optionIds(v) { return (v.option_meta || []).map(m => m.option_row_id); }
+function offeredSet(v) {
+  if (!offeredSel[v.version_id]) offeredSel[v.version_id] = new Set(v.offered_option_ids || optionIds(v));
+  return offeredSel[v.version_id];
+}
+function toggleOffer(versionId, rowId, box) {
+  const set = offeredSel[versionId];
+  if (!box.checked && set.size <= 1) { box.checked = true; msg(versionId, 'Keep at least one option ticked.'); return; }
+  if (box.checked) set.add(rowId); else set.delete(rowId);
+  box.closest('.orow').classList.toggle('off', !box.checked);
+}
+function approvePayload(id) {
+  const v = latestDeals.flatMap(d => d.versions).find(x => x.version_id === id);
+  const set = offeredSel[id];
+  if (!v || !set || set.size === optionIds(v).length) return {version_id: id};
+  return {version_id: id, option_ids: optionIds(v).filter(x => set.has(x))};
+}
+function cleanDraftFor(d, v) {
+  const sig = JSON.stringify(v.options);
+  const prior = d.versions.filter(x => x.version_no < v.version_no && x.outbound_status === 'passed' && JSON.stringify(x.options) === sig);
+  return prior.length ? prior[prior.length - 1].draft : null;
+}
+function useClean(id, btn) {
+  const ta = document.getElementById('draft-' + id);
+  ta.value = cleanDrafts[id]; ta.readOnly = false; ta.focus();
+  const edit = document.getElementById('edit-' + id);
+  if (edit) edit.textContent = 'Save draft';
+  msg(id, 'Clean draft loaded. Save it, then run the check.');
+}
 function toggleEdit(id, btn) {
   const ta = document.getElementById('draft-' + id);
   if (ta.readOnly) { ta.readOnly = false; ta.focus(); btn.textContent = 'Save draft'; return; }
   doEdit(id);
 }
+function similarRow(d) {
+  const items = d.similar_work || [];
+  if (!items.length) return '';
+  const i = (similarPick[d.deal_id] || 0) % items.length;
+  const it = items[i];
+  return `<h5>Similar work to show</h5><div class="orow one"><span><b>${esc(it.title)}</b><br><span class="m">${esc(it.reason)}</span></span>${items.length > 1 ? `<button type="button" class="bbtn sm" onclick="swapSimilar('${d.deal_id}')">Change</button>` : ''}</div>`;
+}
+function swapSimilar(dealId) { similarPick[dealId] = (similarPick[dealId] || 0) + 1; renderWorkspace(latestDeals); }
+function extraActions(d, v) {
+  const out = [];
+  if (!v) {
+    const o = d.offers[d.offers.length - 1];
+    if (o && d.status !== 'needs_information') out.push(`<button class="bbtn p" onclick="doEvaluate('${d.deal_id}','${o.offer_id}')">Run the estimate</button>`);
+    return out.join('');
+  }
+  if (v.status === 'published' && v.accepted_at && !v.confirmed) out.push(`<button class="bbtn p" id="confirm-${v.version_id}" onclick="doConfirm('${v.version_id}')">Confirm booking</button>`);
+  if (v.status === 'published' || v.status === 'confirmed') {
+    out.push(`<button class="bbtn" onclick="openPreview('${v.version_id}')">Preview sent proposal</button>`);
+    out.push(`<button class="bbtn" onclick="doRotate('${v.version_id}')">Reissue client link</button>`);
+  }
+  if (d.status === 'confirmed') out.push(`<button class="bbtn" onclick="doClose('${d.deal_id}')">Close deal</button>`);
+  return out.join('');
+}
 function dealHtml(d) {
   const v = latestVersion(d);
   const latestOffer = d.offers[d.offers.length - 1];
   const offer = latestOffer && latestOffer.offer;
+  const o = offer || {};
   const missing = (d.needs_information && d.needs_information.missing_fields) || [];
-  let nextTitle = 'Wait for QwenWork';
-  let nextCopy = 'This deal is being prepared from the saved inquiry.';
-  let nextActions = '';
-  if (d.status === 'needs_information') {
-    nextTitle = missing.length ? 'Ask for the missing project details' : 'Await the client’s clarification';
-    nextCopy = 'The inquiry is saved and no estimate was invented. QwenWork drafted a targeted follow-up before intake can resume.';
-  } else if (!v && latestOffer) {
-    nextTitle = 'Run the estimate';
-    nextCopy = 'The intake is saved. Work out hours, free time and price against your current calendar.';
-    nextActions = `<button onclick="doEvaluate('${d.deal_id}','${latestOffer.offer_id}')">Run the estimate</button>`;
-  } else if (v && ['evaluated', 'draft', 'blocked'].includes(v.status)) {
-    nextTitle = v.status === 'blocked' ? 'Fix the draft, then check it again' : 'Check the message, then approve';
-    nextCopy = v.status === 'blocked' ? 'The check stopped this draft. Keep private numbers out of the client message, then run the check again.' : 'The engine has a proposal ready. The check must pass before Approve and send unlocks.';
-  } else if (v && v.status === 'checked') {
-    nextTitle = 'Approve and send';
-    nextCopy = 'The check passed. Approving creates the client’s private proposal link; your private numbers stay here.';
-  } else if (v && v.status === 'published' && v.accepted_at && !v.confirmed) {
-    nextTitle = 'Confirm the client’s pick';
-    nextCopy = 'The client picked an option you approved. Confirming re-checks your calendar before booking it.';
-    nextActions = `<button id="confirm-${v.version_id}" onclick="doConfirm('${v.version_id}')">Confirm booking</button>`;
-  } else if (v && ['published', 'confirmed'].includes(v.status)) {
-    nextTitle = v.status === 'confirmed' ? 'Booking is confirmed' : 'Wait for the client’s reply';
-    nextCopy = v.status === 'confirmed' ? 'The hours are set aside for this booking.' : 'The client has your approved proposal. Any change request comes back here for review.';
-  }
   const firstOffer = d.offers[0]?.offer_id;
   const roundForStep = s => s.offer_id || (['intake', 'resume'].includes(s.step_key) ? firstOffer : null);
-  const rounds = d.offers.map(o => `<section aria-label="Run round ${o.round}">
-    <h4>Round ${o.round}</h4>
-    ${timelineHtml(d.steps.filter(s => roundForStep(s) === o.offer_id))}
-    ${d.agent_outputs.filter(a => a.offer_id === o.offer_id).map(agentOutputHtml).join('')}
+  const rounds = d.offers.map(r => `<section aria-label="Run round ${r.round}">
+    <h4>Round ${r.round}</h4>
+    ${timelineHtml(d.steps.filter(s => roundForStep(s) === r.offer_id))}
+    ${d.agent_outputs.filter(a => a.offer_id === r.offer_id).map(agentOutputHtml).join('')}
     </section>`).join('');
   const dealActivity = timelineHtml(d.steps.filter(s => !roundForStep(s)))
     + d.agent_outputs.filter(a => !a.offer_id).map(agentOutputHtml).join('');
-  const needsInfoHtml = d.status === 'needs_information' ? `<div class="needs-info"><strong>Incomplete inquiry, no estimate made</strong><div class="small">Missing: ${missing.map(f => esc(FIELD_LABELS[f] || String(f).replace(/_/g, ' '))).join(', ') || 'details not recorded'}. QwenWork will pick this deal back up when the client replies.</div></div>` : '';
-  const closeBtn = d.status === 'confirmed' ? `<button class="ghost" onclick="doClose('${d.deal_id}')">Close deal</button>` : '';
-  const o = offer || {};
   const kind = FORMAT_LABELS[o.format] || (o.format ? String(o.format).replace(/_/g, ' ') : 'video');
   const what = o.deliverables ? `${o.deliverables} ${kind}${o.deliverables === 1 ? '' : 's'}` : '';
   const title = esc(d.client) + (v && v.version_no > 1 ? ', version ' + v.version_no : (what ? ', ' + esc(what) : ''));
-  const sub = [what && o.deadline ? what + ' by ' + shortDate(o.deadline) : '', (d.source === 'manual' ? 'Added by you' : 'From ' + (SOURCE_LABELS[d.source] || d.source)), d.source_id].filter(Boolean).join(' · ');
-  const showNext = nextActions || closeBtn || !v || !['evaluated', 'draft', 'blocked', 'checked'].includes(v.status);
+  const needsInfoHtml = d.status === 'needs_information' ? `<div class="panel"><h5>Needs info, no estimate made</h5><div class="warn" style="grid-template-columns:22px 1fr"><span class="wi">!</span><span><b>Some project details are missing</b>Missing: ${missing.map(f => esc(FIELD_LABELS[f] || String(f).replace(/_/g, ' '))).join(', ') || 'details not recorded'}. Nothing was guessed. QwenWork picks this deal back up when the client replies.</span></div></div>` : '';
+  const extras = extraActions(d, v);
+  const extraPanel = (!v && extras) ? `<div class="panel"><h5>Next step</h5><p class="hint">The brief is saved. Work out hours, free time and price against your calendar.</p><div class="row">${extras}</div><div id="msg-${latestOffer ? latestOffer.offer_id : d.deal_id}" class="small msg-line" role="status"></div></div>` : '';
+  const whatIf = v && ['draft','checked','published'].includes(v.status) && (v.options || []).length
+    ? `<details><summary>If they book: effect on your calendar</summary><div class="detail-inner"><div class="extras">${(v.options || []).map(op => {
+        const m = (v.option_meta || []).find(x => x.option_id === op.option_id) || {};
+        return `<div class="row"><b>${esc(optionName(op.option_id, op, m.label))}</b><button type="button" class="bbtn sm" onclick="previewCapacity('${v.version_id}','${m.option_row_id || ''}',this)">What if they book?</button><p role="status" class="small"></p></div>`;
+      }).join('')}</div></div></details>` : '';
   return `<section class="workbench" id="deal-${d.deal_id.slice(0,8)}">
-    <div class="main-head"><div><h1>${title}</h1><p class="workbench-subtitle">${esc(sub)}</p></div>${verdictChip(d, v)}</div>
-    ${showNext ? `<section class="next-step"><div class="next-step-label">Next step</div><h2>${esc(nextTitle)}</h2><p>${esc(nextCopy)}</p>${(nextActions || closeBtn) ? `<div class="ctl">${nextActions}${closeBtn}</div>` : ''}</section>` : ''}
-    ${needsInfoHtml}
-    ${v ? estimatePanel(d, v) + whatChangedHtml(v) + versionHtml(d, v) : '<p class="small muted">No proposal yet.</p>'}
+    <div class="main-head"><h4>${title}</h4>${verdictChip(d, v)}</div>
+    ${needsInfoHtml}${extraPanel}
+    ${v ? estimatePanel(d, v) + versionHtml(d, v, extras) : (extraPanel ? '' : '<p class="hint">No proposal yet.</p>')}
+    ${v ? whatChangedHtml(v) : ''}
+    ${whatIf}
     <details><summary>Brief and where it came from</summary><div class="detail-inner"><p class="quote">“${esc(d.raw_inquiry || '')}”</p>
       ${offer ? `<table><tr><th>Format</th><td>${esc(kind)}</td><th>Delivery</th><td>${esc(offer.deliverables)} videos by ${esc(shortDate(offer.deadline))}</td></tr><tr><th>Budget</th><td>${money(offer.budget_sgd)}</td><th>Production</th><td>${esc(String(offer.production_mode || '').replace(/_/g, ' '))}</td></tr></table>` : '<p class="small muted">Structured intake is not available yet.</p>'}
+      <p class="small">${esc((SOURCE_LABELS[d.source] || d.source) + ' · ' + d.source_id)}</p>
       ${d.agent_outputs.filter(a => a.kind === 'intake' || a.kind === 'clarification').map(agentOutputHtml).join('')}</div></details>
     <details><summary>Deal timeline and run audit</summary><div class="detail-inner"><p class="small">Private run history from intake through booking. Blocked stages remain visible for review.</p>${stageTimelineHtml(d)}
       ${dealActivity ? '<h4>Deal activity</h4>' + dealActivity : ''}${rounds}
@@ -1605,60 +1719,61 @@ function dealHtml(d) {
       <p class="msg-line small" id="msg-${d.deal_id.slice(0,8)}" role="status" aria-live="polite"></p></div></details>
    </section>`;
 }
-function versionHtml(d, v) {
+function versionHtml(d, v, extras) {
   const meta = {};
   (v.option_meta || []).forEach(m => { meta[m.option_id] = m; });
   const opts = v.options || [];
+  const offer = dealOffer(d);
+  const canEdit = ['draft','blocked','checked','evaluated'].includes(v.status) && !v.confirmed;
+  const needsCheck = ['draft','evaluated'].includes(v.status) && v.outbound_status !== 'blocked' && !v.confirmed;
+  const canRelease = v.status === 'checked' && !v.confirmed;
+  const approvable = canEdit;
+  const multi = opts.length > 1;
+  const set = offeredSet(v);
+  const accepted = v.accepted_option ? v.accepted_option.option_id : null;
   const rows = opts.map(o => {
     const m = meta[o.option_id] || {};
     const rowId = m.option_row_id || '';
-    const phases = (o.phases || []).map(p => p.deliverables + ' by ' + shortDate(p.deadline)).join(', then ');
-    const sel = rowId === v.selected_option_id ? ' selected' : '';
-    const acc = v.accepted_option && v.accepted_option.option_id === rowId
-      ? ' <span class="st ok">Client picked this</span>' : '';
-    const whatIf = ['draft','checked','published'].includes(v.status)
-      ? `<div class="whatif"><button type="button" class="ghost" onclick="previewCapacity('${v.version_id}','${rowId}',this)">What if they book?</button><p role="status" class="small"></p></div>` : '';
-    return `<div class="orow${sel}"><span><b>${esc(m.label || o.option_id)}</b>${acc}<br>
-      <span class="muted">${o.deliverables} videos by ${esc(shortDate(o.deadline))}${phases ? ' (' + esc(phases) + ')' : ''}
-      · ${o.caption_versions} captioned · ${o.revision_rounds} rounds of changes</span></span>
-      <b class="oprice">${money0(o.price_sgd)}</b>${whatIf}</div>`;
+    const name = optionName(o.option_id, o, m.label);
+    const price = `<b>${money0(o.price_sgd)}</b>`;
+    const picked = accepted === rowId ? ' picked' : '';
+    if (!multi) {
+      const shoot = offer.shoot_days ? `, ${offer.shoot_days} shoot day${offer.shoot_days === 1 ? '' : 's'}` : '';
+      return `<div class="orow one${picked}"><span><b>${esc(name)}</b>${accepted === rowId ? ' <span class="st ok">Client picked this</span>' : ''}<br><span class="m">${o.deliverables} videos, ${o.caption_versions} captioned${shoot}, by ${esc(shortDate(o.deadline))}</span></span>${price}</div>`;
+    }
+    const on = set.has(rowId);
+    return `<label class="orow ck${picked}${on ? '' : ' off'}"><span><input type="checkbox" ${on ? 'checked' : ''} ${approvable ? '' : 'disabled'} onchange="toggleOffer('${v.version_id}','${rowId}',this)"> <b>${esc(name)}</b>${accepted === rowId ? ' <span class="st ok">Picked</span>' : ''}</span><span class="m">${esc(optionDesc(o))}</span>${price}</label>`;
   }).join('');
-  const acceptInfo = v.accepted_option && v.accepted_option.terms ? `<p class="passed">The client picked
-    ${esc(v.accepted_option.terms.deliverables + ' videos by ' + shortDate(v.accepted_option.terms.deadline) + ' for ' + money(v.accepted_option.terms.price_sgd))}
-    ${v.confirmed ? '· booking confirmed' : '· waiting for you to confirm'}</p>` : '';
-  const canEdit = ['draft','blocked','checked','evaluated'].includes(v.status) && !v.confirmed;
-  const needsCheck = ['draft','blocked','evaluated'].includes(v.status) && !v.confirmed;
-  const canRelease = v.status === 'checked' && !v.confirmed;
-  const previewBtn = (v.status === 'published' || v.status === 'confirmed')
-    ? `<button class="ghost" onclick="openPreview('${v.version_id}')">Preview sent proposal</button>` : '';
-  const rotateBtn = (v.status === 'published' || v.status === 'confirmed')
-    ? `<button class="ghost" onclick="doRotate('${v.version_id}')">Reissue client link</button>` : '';
   const draft = canEdit
     ? `<label class="sr" for="draft-${v.version_id}">Client-facing draft</label><textarea class="draft" id="draft-${v.version_id}" readonly>${esc(v.draft)}</textarea>`
     : `<div class="draft">${esc(v.draft)}</div>`;
-  const approve = (needsCheck || canRelease)
-    ? `<button class="p" ${canRelease ? '' : 'disabled title="Unlocks after the check passes"'} onclick="doApprove('${v.version_id}')">Approve and send</button>` : '';
-  return `<div class="two">
-    <section class="panel">
-      <h5>${opts.length === 1 ? 'Option the client will see' : 'Options for the client'}</h5>
-      <div class="olist">${rows || '<p class="small muted">No options yet.</p>'}</div>
-      ${acceptInfo}
+  const clean = (v.status === 'blocked' || v.outbound_status === 'blocked') && canEdit ? cleanDraftFor(d, v) : null;
+  if (clean) cleanDrafts[v.version_id] = clean;
+  const est = v.estimate || {};
+  const buttons = `${needsCheck ? `<button class="bbtn" onclick="doCheck('${v.version_id}')">Run check</button>` : ''}
+    ${canEdit ? `<button class="bbtn p" ${canRelease ? '' : 'disabled title="Unlocks after the check passes"'} onclick="doApprove('${v.version_id}')">Approve and send</button>` : ''}
+    ${clean ? `<button class="bbtn" onclick="useClean('${v.version_id}', this)">Use the clean draft</button>` : ''}
+    ${canEdit ? `<button class="bbtn" id="edit-${v.version_id}" onclick="toggleEdit('${v.version_id}', this)">Edit draft</button>` : ''}
+    ${canEdit ? `<button class="bbtn" onclick="doReject('${v.version_id}')">Reject</button>` : ''}${extras || ''}`;
+  const helper = canEdit ? 'Creates the client’s private proposal page and gives you its link to send. Nothing goes out before you approve.'
+    : (v.status === 'published' ? 'Sent. The client has a private link to this proposal.' : (v.status === 'confirmed' ? 'Booked. The hours are set aside.' : ''));
+  const msgLine = `<div id="msg-${v.version_id}" role="status" aria-live="polite" class="small msg-line"></div>`;
+  if (!multi) return `<div class="two">
+    <div class="panel"><h5>Option the client will see</h5>${rows || '<p class="hint">No option yet.</p>'}
       <h5>Draft message</h5>${draft}
-    </section>
-    <section class="panel checks">
-      <h5>Before it goes out</h5>
-      <div aria-live="polite">${checkRows(v)}</div>
-      <div class="actions">
-        ${needsCheck ? `<button class="ghost" onclick="doCheck('${v.version_id}')">Run check</button>` : ''}
-        ${approve}
-        ${canEdit ? `<button class="ghost" onclick="toggleEdit('${v.version_id}', this)">Edit draft</button>
-          <button class="danger" onclick="doReject('${v.version_id}')">Reject</button>` : ''}
-        ${previewBtn}${rotateBtn}
-      </div>
-      <p class="tiny">${canRelease ? 'Approving creates the client’s private proposal link. Your private numbers stay on this screen.'
-        : (needsCheck ? 'Approve and send stays locked until the check passes. Any edit to the draft needs a fresh check.' : 'Version ' + v.version_no + ' · ' + esc(dealStage(d)[0]))}</p>
-      <div id="msg-${v.version_id}" role="status" aria-live="polite" class="small msg-line"></div>
-    </section>
+      ${similarRow(d)}
+      ${canEdit && est.floor_sgd != null ? `<span class="hint">Try it: click Edit draft, add "our minimum is ${esc(money(est.floor_sgd))}", then Run check.</span>` : ''}</div>
+    <div class="panel"><h5>Before it goes out</h5><div class="checks-stack" aria-live="polite">${checkRows(v)}</div>
+      <div class="row">${buttons}</div>${helper ? `<span class="helper">${esc(helper)}</span>` : ''}${msgLine}</div>
+  </div>`;
+  const one = v.outbound_status === 'blocked' ? (() => { const [t, x] = draftLeak(v); return checkRow('bad', t, x); })()
+    : (v.outbound_status === 'passed' ? checkRow('ok', 'Safe to send', 'No hours, minimum price or other client names in the message.')
+      : checkRow('wait', 'Not checked yet', 'Run the check. Approve and send unlocks when it passes.'));
+  return `<div class="two">
+    <div class="panel"><h5>Options for the client</h5><div class="olist">${rows}
+      <span class="hint">${approvable ? 'Untick any option you don\'t want to offer.' : (v.offered_option_ids ? 'Only the ticked options were offered.' : 'Every option was offered.')}</span></div></div>
+    <div class="panel"><h5>Draft message</h5>${draft}<div aria-live="polite">${one}</div>
+      <div class="row">${buttons}</div>${msgLine}</div>
   </div>`;
 }
 """
@@ -1672,30 +1787,29 @@ def founder_page(conn):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BidPilot — founder dashboard (private)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap">
 <style>{FOUNDER_STYLE}{DASH_STYLE}</style></head><body>
-<header class="app-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"></span><span>BidPilot</span><span class="brand-subtitle">Sales desk</span></div>
-<div class="header-meta"><span class="badge">{SAMPLE_BADGE}</span>
- <span class="badge dim">Private founder view</span></div></header>
-<main class="founder-shell">
-<aside class="deal-sidebar" aria-label="Deal navigation">
-  <h6>Needs you <span id="attention-count">0</span></h6>
-  <div id="deal-queue" class="deal-queue" aria-live="polite"><p class="small">Loading deals…</p></div>
-  <h6>In progress <span id="active-count">0</span></h6>
-  <div id="deal-progress" class="deal-queue"></div>
+<main class="founder-shell dash">
+<aside class="deal-sidebar side" aria-label="Deal navigation">
+  <span class="logo"><i aria-hidden="true"></i>BidPilot</span>
+  <h6>Needs you</h6>
+  <div id="deal-queue" class="deal-queue" aria-live="polite"><p class="hint">Loading deals…</p></div>
   <div id="client-said"></div>
+  <h6>In progress</h6>
+  <div id="deal-progress" class="deal-queue"></div>
   <h6>This week</h6>
-  <div id="week-capacity" class="week"><span>Loading capacity…</span></div>
-  <h6>Studio tools</h6>
-  <nav class="sidebar-nav studio-nav">
-    <a href="/inquire" target="_blank" rel="noopener">Buyer inquiry</a>
-    <a href="/portfolio" data-owner-link>Portfolio library</a>
-    <a href="/estimating" data-owner-link>Production estimates</a>
-    <a href="/commerce" data-owner-link>Proposals and amendments</a>
-  </nav>
-  <p class="sidebar-sync">Inbound runs through Hashmeta and QwenWork.<br>Live state refreshes while this page is open.</p>
+  <div id="week-capacity" class="week"><span>Loading…</span></div>
+  <div class="side-foot">
+    <details><summary>Studio tools</summary><nav>
+      <a href="/inquire" target="_blank" rel="noopener">Buyer inquiry</a>
+      <a href="/portfolio" data-owner-link>Portfolio library</a>
+      <a href="/estimating" data-owner-link>Production estimates</a>
+      <a href="/commerce" data-owner-link>Proposals and amendments</a>
+    </nav></details>
+    <span>{SAMPLE_BADGE} · Private founder view</span>
+  </div>
 </aside>
-<section class="workspace-main">
+<section class="workspace-main main">
 <div class="release-panel" id="release-panel">
   <b>Client link released</b>
   <div class="row">
@@ -1709,11 +1823,7 @@ def founder_page(conn):
    Rotate / reissue — the old link stops working immediately. The token is never logged.</p>
 </div>
 <div class="error-box" id="error-box" role="alert"></div>
-<div class="workspace-toolbar" aria-label="Dashboard updates">
-  <span id="sync-status" class="small">QwenWork is watching inbound inquiries</span>
-  <div class="ctl"><button type="button" class="ghost" id="live-updates" aria-pressed="true">Live updates on</button>
-  <button type="button" class="ghost" id="refresh-state">Refresh</button></div>
-</div>
+
 <div id="root" class="empty-state"><span class="big">…</span><p>Loading deals…</p></div>
 
 <details class="operator-tools">
@@ -1969,15 +2079,7 @@ function schedulePolling() {{
   clearInterval(pollTimer);
   if (liveUpdates && !document.hidden) pollTimer = setInterval(() => refreshState(true), 4000);
 }}
-const liveButton = document.getElementById('live-updates');
-liveButton.addEventListener('click', () => {{
-  liveUpdates = !liveUpdates;
-  liveButton.textContent = 'Live updates ' + (liveUpdates ? 'on' : 'off');
-  liveButton.setAttribute('aria-pressed', liveUpdates);
-  schedulePolling();
-  if (liveUpdates) refreshState(true);
-}});
-document.getElementById('refresh-state').addEventListener('click', () => refresh());
+
 document.addEventListener('visibilitychange', () => {{
   schedulePolling();
   if (!document.hidden && liveUpdates) refreshState(true);
@@ -2211,7 +2313,7 @@ function openPreview(versionId) {{
     '_blank', 'noopener');
 }}
 async function doApprove(id) {{
-  const r = await api('/api/approve', {{version_id: id}});
+  const r = await api('/api/approve', approvePayload(id));
   if (r.data.ok) {{
     msg(id, 'Released.');
     showRelease(id, r.data.url);
@@ -2309,7 +2411,8 @@ class StudioServer(ThreadingHTTPServer):
             worker.join(timeout=2)
 
 
-def make_server(db_path, port=0, public_origin=None, embed_origin=None):
+def make_server(db_path, port=0, public_origin=None, embed_origin=None,
+                qwenwork_secret_file=None):
     """Build a server on loopback with a fresh per-launch owner token.
 
     Returns (server, owner_token). The owner token is only shown in the
@@ -2330,6 +2433,7 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None):
     server.public_origin = public_origin
     server.embed_origins = embed_origins
     server.owner_token = secrets.token_urlsafe(24)
+    server.qwenwork_secret = qwenwork_callback.load_secret(qwenwork_secret_file)
     return server, server.owner_token
 
 
@@ -2339,8 +2443,10 @@ def main():
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--public-origin", type=https_origin, help="HTTPS origin served by the buyer-facing reverse proxy")
     parser.add_argument("--embed-origin", help="Comma-separated HTTPS origins allowed to embed the inquiry (Hashmeta site and any embed shell host)")
+    parser.add_argument("--qwenwork-secret-file", help="File holding the shared secret for POST /qwenwork/callback (or set BIDPILOT_QWENWORK_SECRET)")
     args = parser.parse_args()
-    server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin)
+    server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin,
+                                      args.qwenwork_secret_file)
     port = server.server_address[1]
     with server:
         print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token}",

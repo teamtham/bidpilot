@@ -705,6 +705,24 @@ def options_of(conn, version_row):
     return [by_id[option_id] for option_id in ids if option_id in by_id]
 
 
+def offered_options_of(conn, version_row):
+    """Options the founder chose to show the client (all of them by default).
+
+    The version still carries the complete engine option set for integrity
+    checks; this only narrows what the client page shows and can accept.
+    """
+    rows = options_of(conn, version_row)
+    try:
+        raw = version_row["offered_option_ids_json"]
+    except (IndexError, KeyError):
+        raw = None
+    offered = uj(raw) if raw else None
+    if not offered:
+        return rows
+    keep = set(offered)
+    return [row for row in rows if row["id"] in keep]
+
+
 def option_set_errors(conn, version_row):
     """A version's option set must be the exact ordered engine output.
 
@@ -966,7 +984,8 @@ def save_draft(conn, version_id, body, commit=True):
 
 # ---- release boundary -----------------------------------------------------
 
-def approve(conn, version_id, selected_option_id=None, actor="alex"):
+def approve(conn, version_id, selected_option_id=None, actor="alex",
+            offered_option_ids=None):
     """Validate and release under a write transaction.
 
     A BEGIN IMMEDIATE write lock is acquired BEFORE rereading the latest
@@ -1044,6 +1063,23 @@ def approve(conn, version_id, selected_option_id=None, actor="alex"):
         if selected_option_id and selected_option_id not in uj(
                 version["public_option_ids_json"]):
             reasons.append("option_not_in_version")
+        # Optional founder subset of the engine options to offer. Absent means
+        # every option (unchanged behaviour); at least one must stay offered.
+        offered = None
+        if offered_option_ids is not None:
+            public = uj(version["public_option_ids_json"]) or []
+            if (not isinstance(offered_option_ids, list) or not offered_option_ids
+                    or not all(isinstance(x, str) for x in offered_option_ids)
+                    or len(set(offered_option_ids)) != len(offered_option_ids)
+                    or not set(offered_option_ids) <= set(public)):
+                reasons.append("invalid_offered_options")
+            else:
+                chosen = set(offered_option_ids)
+                offered = [x for x in public if x in chosen]
+                if len(offered) == len(public):
+                    offered = None
+        if selected_option_id and offered and selected_option_id not in offered:
+            reasons.append("option_not_offered")
         if reasons:
             conn.execute(
                 "INSERT INTO approvals (id, version_id, actor_id, action, reviewed_digest,"
@@ -1059,8 +1095,8 @@ def approve(conn, version_id, selected_option_id=None, actor="alex"):
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         conn.execute(
             "UPDATE proposal_versions SET status='published', token_hash=?,"
-            " selected_option_id=?, published_at=? WHERE id=?",
-            (token_hash, selected_option_id, now, version_id))
+            " selected_option_id=?, published_at=?, offered_option_ids_json=? WHERE id=?",
+            (token_hash, selected_option_id, now, j(offered) if offered else None, version_id))
         conn.execute("UPDATE proposal_versions SET status='superseded', published_at=NULL"
                      " WHERE deal_id=? AND status='published' AND id<>?",
                      (deal["id"], version_id))
@@ -1176,6 +1212,8 @@ def client_accept(conn, token, option_id):
     if not option_id:
         return {"ok": False, "error": "Missing option_id"}
     if option_id not in uj(version["public_option_ids_json"]):
+        return {"ok": False, "error": "Option does not belong to this version"}
+    if [r for r in offered_options_of(conn, version) if r["id"] == option_id] == []:
         return {"ok": False, "error": "Option does not belong to this version"}
     # Cross-deal / cross-version option: the option row must come from the
     # evaluation of this version's own offer.

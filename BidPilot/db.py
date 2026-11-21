@@ -83,6 +83,9 @@ _MIGRATIONS = [
     ("messages", "payload_hash", "ALTER TABLE messages ADD COLUMN payload_hash TEXT"),
     # Conversation worker leases: one agent owns an inquiry's pending turns.
     ("inquiry_jobs", "lease_owner", "ALTER TABLE inquiry_jobs ADD COLUMN lease_owner TEXT"),
+    # Founder may offer a subset of the engine options; NULL means all of them.
+    ("proposal_versions", "offered_option_ids_json",
+     "ALTER TABLE proposal_versions ADD COLUMN offered_option_ids_json TEXT"),
 ]
 
 def _ensure_columns(conn):
