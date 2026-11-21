@@ -197,8 +197,10 @@ class DashboardRoutesTest(unittest.TestCase):
         self.assertIn('/api/state', page)
         self.assertIn('visibilitychange', page)
         self.assertIn('4000', page)
-        self.assertIn('Live updates', page)
-        self.assertIn('Refresh', page)
+        # Polling runs quietly; the owner asked for no Live updates / Refresh buttons.
+        self.assertIn('schedulePolling()', page)
+        self.assertNotIn('id="live-updates"', page)
+        self.assertNotIn('id="refresh-state"', page)
 
     def test_client_route_refuses_modified_release(self):
         bundle = {'source': 'manual', 'source_id': 'release-integrity', 'offer_request': INQUIRY,

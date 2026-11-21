@@ -282,28 +282,147 @@ def dispatch_post(h, path):
     return True
 
 
+FORMAT_NAMES = {"product_promo": "Product promo", "social_reel": "Social reel", "testimonial": "Testimonial",
+                "event_recap": "Event recap", "explainer": "Explainer"}
+
+LIBRARY_STYLE = """
+:root{--b-bg:#f3f5f7;--b-panel:#fff;--b-ink:#1d2430;--b-mute:#64707e;--b-line:#dde2e8;--b-teal:#146c62;--b-teal-tint:#e2f1ee;
+ --ok:#2c7a3f;--ok-tint:#e4f3e7;--ui:"Instrument Sans","Helvetica Neue",Arial,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--b-bg);color:var(--b-ink);font:15px/1.5 var(--ui);-webkit-font-smoothing:antialiased}
+a{color:var(--b-teal)}
+:focus-visible{outline:2px solid var(--b-teal);outline-offset:2px}
+.topbar{display:flex;align-items:center;gap:18px;padding:12px 24px;background:#fff;border-bottom:1px solid var(--b-line);flex-wrap:wrap}
+.logo{font:700 15px var(--ui);display:flex;align-items:center;gap:8px;color:var(--b-ink);text-decoration:none}
+.logo i{width:18px;height:18px;border-radius:5px;background:var(--b-teal);display:inline-block}
+.topnav{display:flex;gap:16px;font-size:13px;flex-wrap:wrap}
+.topnav a{color:var(--b-mute);text-decoration:none;padding:2px 0;border-bottom:2px solid transparent}
+.topnav a:hover{color:var(--b-ink)}
+.topnav a.here{color:var(--b-ink);font-weight:600;border-bottom-color:var(--b-teal)}
+.back{margin-left:auto;font:600 13px var(--ui);text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 24px 64px;display:grid;gap:20px}
+.head h1{margin:0;font:600 24px/1.2 var(--ui)}
+.head p{margin:4px 0 0;color:var(--b-mute);font-size:14px;max-width:62ch}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.fchip{font:600 12.5px var(--ui);padding:6px 12px;border-radius:999px;border:1px solid var(--b-line);background:#fff;color:var(--b-ink);cursor:pointer}
+.fchip:hover{border-color:var(--b-teal)}
+.fchip[aria-pressed="true"]{background:var(--b-teal);border-color:var(--b-teal);color:#fff}
+.fchip span{opacity:.7;font-weight:500;margin-left:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;align-items:stretch}
+.item{background:var(--b-panel);border:1px solid var(--b-line);border-radius:10px;overflow:hidden;display:grid;grid-template-rows:auto 1fr;transition:border-color .15s,box-shadow .15s}
+.item:hover{border-color:#c5ccd3;box-shadow:0 10px 24px -18px rgba(20,30,40,.45)}
+.thumb{aspect-ratio:16/9;background:#e9edf1;position:relative;overflow:hidden}
+.thumb video,.thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;background:#000}
+.thumb .private{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;color:var(--b-mute);font-size:12.5px}
+.body{padding:14px;display:grid;gap:8px;align-content:start;grid-template-rows:auto auto 1fr auto}
+.body h2{margin:0;font:600 16px/1.3 var(--ui)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.st{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:#eef1f4;color:#4b5663;white-space:nowrap}
+.st.ok{background:var(--ok-tint);color:var(--ok)}
+.st.new{background:var(--b-teal-tint);color:var(--b-teal)}
+.desc{margin:0;color:var(--b-mute);font-size:13px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.foot{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding-top:10px;border-top:1px solid var(--b-line);font-size:12px;color:var(--b-mute)}
+.foot span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.thumb video{cursor:pointer}
+.thumb .play{position:absolute;right:12px;bottom:12px;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.thumb .play::before{content:"";margin-left:3px;border-left:11px solid var(--b-ink);border-top:7px solid transparent;border-bottom:7px solid transparent}
+.thumb.playing .play{display:none}
+.bbtn{display:inline-flex;align-items:center;justify-content:center;border-radius:7px;padding:8px 12px;font:600 13px var(--ui);border:1px solid var(--b-line);background:#fff;color:var(--b-ink);white-space:nowrap;cursor:pointer}
+.bbtn:hover{background:#f6f2ee}
+.bbtn.p{background:var(--b-teal);border-color:var(--b-teal);color:#fff;padding:10px 16px;font-size:13.5px}
+.empty{background:#fff;border:1px dashed var(--b-line);border-radius:10px;padding:40px 20px;text-align:center;color:var(--b-mute)}
+.panel{background:#fff;border:1px solid var(--b-line);border-radius:10px;padding:18px;display:grid;gap:14px}
+.panel h2{margin:0;font:600 13px var(--ui);color:var(--b-mute)}
+.form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
+.form label{display:grid;gap:5px;font-size:12.5px;font-weight:600;color:var(--b-mute)}
+.form .wide{grid-column:1/-1}
+.form input,.form select,.form textarea{font:14px var(--ui);color:var(--b-ink);border:1px solid var(--b-line);border-radius:7px;padding:9px 11px;background:#fff;width:100%}
+.form textarea{min-height:84px;resize:vertical}
+.form .check{display:flex;align-items:center;gap:8px;font-weight:500;color:var(--b-ink)}
+.form .check input{width:auto;accent-color:var(--b-teal)}
+.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#message{margin:0;font-size:13px;color:#b3261e}
+#message:empty{display:none}
+@media(max-width:640px){.topbar{padding:12px 16px;gap:10px}.back{margin-left:0}.wrap{padding:20px 16px 48px}.form{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
+"""
+
+FILTER_SCRIPT = """<script>
+document.querySelectorAll('[data-filter]').forEach(chip=>chip.onclick=()=>{
+  const f=chip.dataset.filter;
+  document.querySelectorAll('[data-filter]').forEach(c=>c.setAttribute('aria-pressed',String(c===chip)));
+  let shown=0;
+  document.querySelectorAll('.item').forEach(card=>{const on=f==='all'||card.dataset.format===f||card.dataset.access===f;card.hidden=!on;if(on)shown++;});
+  const none=document.querySelector('#nomatch'); if(none) none.hidden=shown>0;
+});
+document.querySelectorAll('.thumb video').forEach(v=>v.onclick=()=>{v.controls=true;v.closest('.thumb').classList.add('playing');v.play().catch(()=>{});});
+document.querySelectorAll('[data-owner-link]').forEach(link=>{const t=new URLSearchParams(location.search).get('owner');if(t)link.search='?owner='+encodeURIComponent(t);});
+</script>"""
+
+
 def library_page(conn):
-    from server import CLIENT_STYLE
     import estimating
-    projects = [(r["project_id"], r["client"]) for r in estimating.get_history(conn)]
+    history = {r["project_id"]: r for r in estimating.get_history(conn)}
+    projects = [(r["project_id"], r["client"]) for r in history.values()]
     options = "".join(f'<option value="{html.escape(key)}">{html.escape(label)} · {html.escape(key)}</option>' for key,label in projects)
-    cards = []
-    for row in conn.execute("SELECT id,title,description,mime,shared FROM portfolio_assets ORDER BY title"):
-        media = ""
+    esc = html.escape
+    cards, formats = [], {}
+    rows = conn.execute("SELECT id,project_id,title,description,mime,shared FROM portfolio_assets ORDER BY title").fetchall()
+    for row in rows:
+        project = history.get(row["project_id"])
+        fmt = (project or {}).get("format") or "other"
+        formats[fmt] = formats.get(fmt, 0) + 1
         if row["shared"]:
-            tag = "video" if row["mime"].startswith("video/") else "img"
-            media = f'<{tag} controls preload="metadata" style="width:100%" src="/portfolio/media/{html.escape(row["id"])}"></{tag}>'
-        cards.append(f'<article class="card">{media}<h2>{html.escape(row["title"])}</h2><p>{html.escape(row["description"])}</p>'
-                     f'<button data-id="{html.escape(row["id"])}" data-share="{int(not row["shared"])}">'
-                     f'{"Remove buyer access" if row["shared"] else "Allow buyer access"}</button></article>')
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
-            '<title>Studio portfolio</title><style>'+CLIENT_STYLE+'</style><main><h1>Studio portfolio</h1>'
-            '<p>Choose the work buyers can discover in their proposal.</p><div class="cards">'+''.join(cards)+'</div>'
-            '<form id="upload" class="card"><h2>Add work</h2><label>Project<select name="project_id">'+options+'</select></label>'
-            '<label>Title<input name="title" required></label><label>Buyer-facing description<textarea name="description" required></textarea></label>'
-            '<label>Style and subject keywords<input name="tags"></label><label>Video or image<input type="file" name="asset" required accept="video/mp4,image/jpeg,image/png"></label>'
-            '<label><input type="checkbox" name="shared"> Allow buyers to discover this asset</label><button>Save work</button></form>'
-            '<p id="message" role="status"></p></main>'+LIBRARY_SCRIPT+'</html>')
+            src = "/portfolio/media/" + esc(row["id"])
+            media = (f'<video muted playsinline preload="metadata" title="Play preview" src="{src}#t=0.5"></video><span class="play" aria-hidden="true"></span>'
+                     if row["mime"].startswith("video/") else f'<img alt="" loading="lazy" src="{src}">')
+        else:
+            media = '<span class="private">Private: not shown to buyers, so no preview here</span>'
+        chips = [f'<span class="st new">{esc(FORMAT_NAMES.get(fmt, fmt.replace("_", " ").title()))}</span>']
+        if project:
+            n = project["deliverables"]
+            chips.append(f'<span class="st">{n} video{"s" if n != 1 else ""}</span>')
+            days = project["shoot_days"]
+            chips.append(f'<span class="st">{days} shoot day{"s" if days != 1 else ""}</span>' if days
+                         else '<span class="st">Edit only</span>')
+        chips.append('<span class="st ok">Buyers can see</span>' if row["shared"] else '<span class="st">Private</span>')
+        client = f'{esc(project["client"])} · ' if project else ''
+        cards.append(
+            f'<article class="item" data-format="{esc(fmt)}" data-access="{"shared" if row["shared"] else "private"}">'
+            f'<div class="thumb">{media}</div><div class="body"><h2>{esc(row["title"])}</h2>'
+            f'<div class="chips">{"".join(chips)}</div><p class="desc">{esc(row["description"])}</p>'
+            f'<div class="foot"><span title="{client}{esc(row["project_id"])}">{client}{esc(row["project_id"])}</span>'
+            f'<button class="bbtn" data-id="{esc(row["id"])}" data-share="{int(not row["shared"])}">'
+            f'{"Remove buyer access" if row["shared"] else "Allow buyer access"}</button></div></div></article>')
+    shared = sum(1 for r in rows if r["shared"])
+    chip_html = (f'<button type="button" class="fchip" data-filter="all" aria-pressed="true">All<span>{len(rows)}</span></button>'
+                 + "".join(f'<button type="button" class="fchip" data-filter="{esc(k)}" aria-pressed="false">'
+                           f'{esc(FORMAT_NAMES.get(k, k.replace("_", " ").title()))}<span>{v}</span></button>'
+                           for k, v in sorted(formats.items()))
+                 + f'<button type="button" class="fchip" data-filter="shared" aria-pressed="false">Buyers can see<span>{shared}</span></button>')
+    grid = (f'<nav class="filters" aria-label="Filter portfolio">{chip_html}</nav><div class="grid">{"".join(cards)}</div>'
+            '<p class="empty" id="nomatch" hidden>Nothing in this category yet.</p>') if rows else (
+            '<div class="empty"><b>No work in the library yet.</b><br>Add a finished piece below and choose whether buyers can see it.</div>')
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>Studio portfolio</title><link rel="preconnect" href="https://fonts.googleapis.com">'
+            '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap">'
+            '<style>'+LIBRARY_STYLE+'</style></head><body>'
+            '<header class="topbar"><a class="logo" href="/dashboard" data-owner-link><i aria-hidden="true"></i>BidPilot</a>'
+            '<nav class="topnav" aria-label="Studio tools"><a class="here" href="/portfolio" data-owner-link>Portfolio library</a>'
+            '<a href="/estimating" data-owner-link>Production estimates</a><a href="/commerce" data-owner-link>Proposals and amendments</a>'
+            '<a href="/inquire" target="_blank" rel="noopener">Buyer inquiry</a></nav>'
+            '<a class="back" href="/dashboard" data-owner-link>← Back to dashboard</a></header>'
+            '<main class="wrap"><div class="head"><h1>Studio portfolio</h1>'
+            '<p>Choose the work buyers can discover in their proposal. Private pieces stay here and are never shown to buyers.</p></div>'
+            + grid +
+            '<form id="upload" class="panel"><h2>Add work</h2><div class="form">'
+            '<label>Project<select name="project_id">'+options+'</select></label>'
+            '<label>Title<input name="title" required></label>'
+            '<label class="wide">Buyer-facing description<textarea name="description" required></textarea></label>'
+            '<label>Style and subject keywords<input name="tags" placeholder="e.g. cafe, warm, launch"></label>'
+            '<label>Video or image<input type="file" name="asset" required accept="video/mp4,image/jpeg,image/png"></label>'
+            '<label class="check wide"><input type="checkbox" name="shared"> Allow buyers to discover this asset</label>'
+            '<div class="actions wide"><button class="bbtn p">Save work</button><p id="message" role="status"></p></div></div></form>'
+            '</main>'+LIBRARY_SCRIPT+FILTER_SCRIPT+'</body></html>')
 
 
 LIBRARY_SCRIPT = """<script>
