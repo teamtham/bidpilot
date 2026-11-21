@@ -10,6 +10,7 @@ import json
 import math
 import re
 import secrets
+import sqlite3
 import sys
 import threading
 import time
@@ -21,6 +22,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import core
 import dashboard_ops
+import commerce
+import conversation
+import estimating
+import portfolio
+from studio_modules import modules
 import db
 
 DB_PATH = Path(__file__).resolve().parent / "bidpilot.db"
@@ -28,6 +34,15 @@ SAMPLE_BADGE = core.SAMPLE_BADGE
 QUOTE_LIMIT = 16 * 1024
 _quote_lock = threading.Lock()
 _quote_times = []
+
+
+def https_origin(value):
+    if not re.fullmatch(r"https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?", value):
+        raise ValueError("Expected an HTTPS origin with a hostname and optional port")
+    origin = urllib.parse.urlsplit(value)
+    if origin.port == 0:
+        raise ValueError("Invalid origin port")
+    return value.lower()
 
 QUOTE_TEXT = ("name_business", "reply_email", "project_brief", "video_format",
               "production_mode", "scripting", "editing_level", "graphics",
@@ -39,7 +54,7 @@ QUOTE_COUNTS = ("shoot_days", "locations", "interviewees", "deliverables",
 def validate_quote(data, form=False):
     if not isinstance(data, dict):
         raise ValueError("Expected an object")
-    allowed = set(QUOTE_TEXT + QUOTE_COUNTS + ("budget_sgd", "caption_every_deliverable", "request_id"))
+    allowed = set(QUOTE_TEXT + QUOTE_COUNTS + ("budget_sgd", "caption_every_deliverable", "request_id", "resume_proof"))
     if set(data) - allowed:
         raise ValueError("Unknown field")
     request_id = data.get("request_id")
@@ -107,6 +122,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "same-origin")
+        if self.path.split("?", 1)[0] == "/inquire" or self.path.startswith("/i/"):
+            embed = getattr(self.server, "embed_origins", None) or []
+            self.send_header("Content-Security-Policy", "frame-ancestors 'self'" + "".join(" " + e for e in embed))
+        else:
+            self.send_header("Content-Security-Policy", "frame-ancestors 'self'")
         if noindex:
             self.send_header("X-Robots-Tag", "noindex, nofollow")
         self.send_header("Content-Length", str(len(body)))
@@ -123,7 +143,10 @@ class Handler(BaseHTTPRequestHandler):
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw.decode("utf-8") or "{}")
+        data = json.loads(raw.decode("utf-8") or "{}", parse_constant=reject_nonfinite)
+        if not isinstance(data, dict):
+            raise ValueError("Expected an object")
+        return data
 
     # -- auth --------------------------------------------------------------
     def query(self):
@@ -131,6 +154,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def owner_ok(self):
         """Founder routes need the per-launch owner session token."""
+        public = getattr(self.server, "public_origin", None)
+        if public and self.headers.get("Host", "").lower() == urllib.parse.urlsplit(public).netloc:
+            return False
         supplied = self.headers.get("X-Owner-Token") or (self.query().get("owner") or [None])[0]
         return bool(supplied and secrets.compare_digest(
             supplied.encode("utf-8"), self.server.owner_token.encode("ascii")))
@@ -144,8 +170,13 @@ class Handler(BaseHTTPRequestHandler):
             origin = urllib.parse.urlsplit(supplied)
         except ValueError:
             return False
-        return (origin.scheme == "http" and bool(origin.netloc)
-                and origin.netloc == self.headers.get("Host", ""))
+        host = self.headers.get("Host", "").lower()
+        if not origin.netloc or origin.netloc.lower() != host:
+            return False
+        public = getattr(self.server, "public_origin", None)
+        if public and host == urllib.parse.urlsplit(public).netloc:
+            return origin.scheme == "https"
+        return origin.scheme == "http"
 
     # -- routes ------------------------------------------------------------
     def do_GET(self):
@@ -153,6 +184,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+            if (path == "/estimating" or path.startswith("/api/estimating/")) and not self.owner_ok():
+                return self.forbidden("owner token required")
+            if any(module.dispatch_get(self, path) for module in modules()):
+                return
             if path == "/quote":
                 return self.send_html(quote_page())
             if path == "/" or path == "/dashboard":
@@ -179,6 +214,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if not self.same_origin():
             return self.forbidden("same-origin request required")
+        if path == "/inquire" or path.startswith("/i/"):
+            self.open_db()
+            try:
+                if not conversation.dispatch_post(self, path):
+                    self.not_found()
+            finally:
+                self.conn.close()
+            return
         if path == "/quote":
             return self.quote_post()
         if path.startswith("/p/"):
@@ -187,91 +230,118 @@ class Handler(BaseHTTPRequestHandler):
             return self.forbidden("owner token required")
         self.open_db()
         try:
+            if commerce.dispatch_post(self, path) or portfolio.dispatch_post(self, path):
+                return
             try:
                 data = self.body()
             except (ValueError, RecursionError):
                 return self.send_json({"ok": False, "error": "bad_json"}, 400)
-
-            if path == "/api/import-run" or path == "/api/reset-sample":
-                operation = (dashboard_ops.import_run if path == "/api/import-run"
-                             else dashboard_ops.reset_sample)
-                try:
-                    result = operation(self.conn, data)
-                except ValueError as exc:
-                    status = 409 if str(exc) == "request_id_conflict" else 400
-                    return self.send_json({"ok": False, "error": str(exc)}, status)
-                return self.send_json({"ok": True, **result})
-
-            if path == "/api/import":
-                offer_request = data["offer_request"]
-                try:
-                    deal_id, offer_id, fresh = core.claim_or_resume(
-                        self.conn, data["source"], data["source_id"],
-                        offer_request["offer"]["client"], data.get("raw_inquiry", ""),
-                        offer_request)
-                except ValueError as exc:
-                    return self.send_json({"ok": False, "error": str(exc)}, 400)
-                return self.send_json({"ok": True, "deal_id": deal_id, "offer_id": offer_id,
-                                       "fresh": fresh, "duplicate": not fresh})
-
-            if path == "/api/evaluate":
-                eval_id, version_id = core.evaluate(self.conn, data["deal_id"], data["offer_id"])
-                return self.send_json({"ok": True, "eval_id": eval_id, "version_id": version_id})
-
-            if path == "/api/check":
-                outcome = core.check_draft(self.conn, data["version_id"])
-                return self.send_json({"ok": outcome["passed"], "result": outcome})
-
-            if path == "/api/draft":
-                new_id = core.save_draft(self.conn, data["version_id"], data["body"])
-                return self.send_json({"ok": True, "version_id": new_id})
-
-            if path == "/api/approve":
-                res = core.approve(self.conn, data["version_id"], data.get("option_id"))
-                return self.send_json(res, 200 if res["ok"] else 409)
-
-            if path == "/api/reject":
-                return self.send_json(core.reject(self.conn, data["version_id"],
-                                                  data.get("note", "")))
-
-            if path == "/api/rotate-token":
-                res = core.rotate_token(self.conn, data["version_id"])
-                return self.send_json(res, 200 if res["ok"] else 409)
-
-            if path == "/api/reevaluate":
-                try:
-                    offer_id = core.reevaluate(self.conn, data["offer_id"])
-                except ValueError as exc:
-                    return self.send_json({"ok": False, "error": str(exc)}, 400)
-                eval_id, version_id = core.evaluate(
-                    self.conn, data["deal_id"], offer_id)
-                return self.send_json({"ok": True, "offer_id": offer_id,
-                                       "eval_id": eval_id, "version_id": version_id})
-
-            if path == "/api/confirm-booking":
-                res = core.confirm_booking(self.conn, data["version_id"])
-                code = 200 if res["ok"] else 409
-                return self.send_json(res, code)
-
-            if path == "/api/close-deal":
-                res = core.close_deal(self.conn, data["deal_id"])
-                return self.send_json(res, 200 if res["ok"] else 409)
-
-            if path == "/api/client-change":
-                try:
-                    offer_id = core.client_change(self.conn, data["deal_id"],
-                                                  data.get("body", ""),
-                                                  data.get("request_id") or secrets.token_hex(8),
-                                                  data.get("terms"))
-                except ValueError as exc:
-                    return self.send_json({"ok": False, "error": str(exc)}, 400)
-                if offer_id is None:
-                    return self.send_json({"ok": True, "status": "clarify", "offer_id": None,
-                                           "message": "Change request queued for clarification"}, 202)
-                return self.send_json({"ok": True, "status": "offered", "offer_id": offer_id})
-            return self.not_found()
+            try:
+                return self.owner_route(path, data)
+            except (KeyError, TypeError):
+                # Malformed owner payload (missing/None ids or fields) is a
+                # clean 400, never an unhandled traceback / dropped connection.
+                return self.send_json({"ok": False, "error": "bad_request"}, 400)
         finally:
             self.conn.close()
+
+    def owner_route(self, path, data):
+        if estimating.dispatch_post(self, path, data):
+            return
+        if path == "/api/capacity-preview":
+            self.conn.execute("BEGIN")
+            try:
+                result = core.cap.booking_preview(self.conn, data["version_id"], data["option_id"])
+            except ValueError as exc:
+                return self.send_json({"ok": False, "error": str(exc)}, 400)
+            return self.send_json({"ok": True, **result})
+        if path == "/api/import-run" or path == "/api/reset-sample":
+            operation = (dashboard_ops.import_run if path == "/api/import-run"
+                         else dashboard_ops.reset_sample)
+            try:
+                result = operation(self.conn, data)
+            except ValueError as exc:
+                status = 409 if str(exc) == "request_id_conflict" else 400
+                return self.send_json({"ok": False, "error": str(exc)}, status)
+            return self.send_json({"ok": True, **result})
+
+        if path == "/api/import":
+            if data.get("source") not in ("site", "hashmeta", "manual"):
+                # Same allowlist as the MCP bridge. Internal namespaces
+                # (e.g. change:<request_id>) must never be importable as a
+                # deal source: they would alias another deal's offer rows.
+                return self.send_json({"ok": False, "error": "invalid_source"}, 400)
+            offer_request = data["offer_request"]
+            try:
+                deal_id, offer_id, fresh = core.claim_or_resume(
+                    self.conn, data["source"], data["source_id"],
+                    offer_request["offer"]["client"], data.get("raw_inquiry", ""),
+                    offer_request)
+            except ValueError as exc:
+                return self.send_json({"ok": False, "error": str(exc)}, 400)
+            return self.send_json({"ok": True, "deal_id": deal_id, "offer_id": offer_id,
+                                   "fresh": fresh, "duplicate": not fresh})
+
+        if path == "/api/evaluate":
+            try:
+                eval_id, version_id = core.evaluate(self.conn, data["deal_id"], data["offer_id"])
+            except ValueError as exc:
+                return self.send_json({"ok": False, "error": str(exc)}, 400)
+            return self.send_json({"ok": True, "eval_id": eval_id, "version_id": version_id})
+
+        if path == "/api/check":
+            outcome = core.check_draft(self.conn, data["version_id"])
+            return self.send_json({"ok": outcome["passed"], "result": outcome})
+
+        if path == "/api/draft":
+            new_id = core.save_draft(self.conn, data["version_id"], data["body"])
+            return self.send_json({"ok": True, "version_id": new_id})
+
+        if path == "/api/approve":
+            res = core.approve(self.conn, data["version_id"], data.get("option_id"))
+            return self.send_json(res, 200 if res["ok"] else 409)
+
+        if path == "/api/reject":
+            res = core.reject(self.conn, data["version_id"], data.get("note", ""))
+            return self.send_json(res, 200 if res["ok"] else 409)
+
+        if path == "/api/rotate-token":
+            res = core.rotate_token(self.conn, data["version_id"])
+            return self.send_json(res, 200 if res["ok"] else 409)
+
+        if path == "/api/reevaluate":
+            try:
+                offer_id = core.reevaluate(self.conn, data["offer_id"])
+            except ValueError as exc:
+                return self.send_json({"ok": False, "error": str(exc)}, 400)
+            eval_id, version_id = core.evaluate(
+                self.conn, data["deal_id"], offer_id)
+            return self.send_json({"ok": True, "offer_id": offer_id,
+                                   "eval_id": eval_id, "version_id": version_id})
+
+        if path == "/api/confirm-booking":
+            res = core.confirm_booking(self.conn, data["version_id"])
+            code = 200 if res["ok"] else 409
+            return self.send_json(res, code)
+
+        if path == "/api/close-deal":
+            res = core.close_deal(self.conn, data["deal_id"])
+            return self.send_json(res, 200 if res["ok"] else 409)
+
+        if path == "/api/client-change":
+            try:
+                offer_id = core.client_change(self.conn, data["deal_id"],
+                                              data.get("body", ""),
+                                              data.get("request_id") or secrets.token_hex(8),
+                                              data.get("terms"))
+            except ValueError as exc:
+                status = 409 if str(exc) == "request_id_conflict" else 400
+                return self.send_json({"ok": False, "error": str(exc)}, status)
+            if offer_id is None:
+                return self.send_json({"ok": True, "status": "clarify", "offer_id": None,
+                                       "message": "Change request queued for clarification"}, 202)
+            return self.send_json({"ok": True, "status": "offered", "offer_id": offer_id})
+        return self.not_found()
 
     def quote_post(self):
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
@@ -292,6 +362,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise ValueError("Unsupported content type")
             request_id, fields = validate_quote(data, form)
+            proof = data.get('resume_proof')
+            if proof is not None and (not isinstance(proof, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43}', proof)):
+                raise ValueError('invalid_resume_proof')
             request_id = "quote:" + request_id
             request_id.encode("utf-8")
             payload = json.dumps({"tool": "quote", "fields": fields}, sort_keys=True,
@@ -308,6 +381,9 @@ class Handler(BaseHTTPRequestHandler):
                 if op["tool"] != "quote" or op["payload_hash"] != payload_hash:
                     return self.send_json({"ok": False, "error": "request_id_conflict"}, 409)
                 result = db.uj(op["result_json"])
+                receipt = self.conn.execute('SELECT i.token_hash FROM inquiry_receipts r JOIN inquiries i ON i.id=r.inquiry_id WHERE r.source_id=? AND i.revoked=0', (result['source_id'],)).fetchone()
+                if receipt and proof and secrets.compare_digest(receipt['token_hash'], hashlib.sha256(proof.encode()).hexdigest()):
+                    result['inquiry_url'] = '/i/' + proof
             else:
                 with _quote_lock:
                     now = time.monotonic()
@@ -320,24 +396,64 @@ class Handler(BaseHTTPRequestHandler):
                 result = {"ok": True, "source_id": source_id}
                 self.conn.execute("INSERT INTO inbox (id, source, source_id, fields_json, raw_message, received_at, sample_data) VALUES (?, 'site', ?, ?, ?, ?, 1)",
                     (secrets.token_hex(16), source_id, db.j(fields), fields["project_brief"], db.now()))
+                if proof:
+                    conversation.create_receipt_inquiry(self.conn, source_id, proof, fields)
                 self.conn.execute("INSERT INTO mcp_operations (request_id, tool, payload_hash, result_json, created_at) VALUES (?, 'quote', ?, ?, ?)",
                     (request_id, payload_hash, db.j(result), db.now()))
                 self.conn.commit()
+                if proof:
+                    result['inquiry_url'] = '/i/' + proof
             if not form:
                 return self.send_json(result)
-            return self.send_html('<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Request received</title><h1>Request received</h1><p>Reference: ' + html.escape(result["source_id"]) + '</p></html>')
+            link = '<p><a href="'+html.escape(result['inquiry_url'], quote=True)+'">Continue your private inquiry</a></p><p>Save this private link to return.</p>' if result.get('inquiry_url') else ''
+            return self.send_html('<!doctype html><html lang="en"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Request received</title><h1>Request received</h1><p>Reference: ' + html.escape(result["source_id"]) + '</p>'+link+'</html>')
         finally:
             self.conn.close()
 
     def token_post(self, path):
         """Client token routes: same-origin enforced, no owner token involved."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self.send_json({"ok": False, "error": "bad_request"}, 400)
+        if length < 0 or length > QUOTE_LIMIT:
+            # Anonymous routes get the same bounded body as the quote form:
+            # a leaked link must not allow unbounded payloads.
+            return self.send_json({"ok": False, "error": "body_too_large"}, 413)
         self.open_db()
         try:
             try:
                 data = self.body()
-            except json.JSONDecodeError:
+            except (ValueError, RecursionError):
                 return self.send_json({"ok": False, "error": "bad_json"}, 400)
 
+            creative = re.fullmatch(r"/p/([^/]+)/creative-change", path)
+            portfolio_search = re.fullmatch(r"/p/([^/]+)/portfolio-search", path)
+            if portfolio_search:
+                try:
+                    if data.get('poll') is True:
+                        result = portfolio.search_status(self.conn, portfolio_search[1], data.get('request_id'))
+                    else:
+                        result = portfolio.client_search(self.conn, portfolio_search[1], data)
+                    return self.send_json({'ok': True, **result})
+                except (KeyError, TypeError, ValueError):
+                    return self.send_json({'ok': False, 'error': 'request_unavailable'}, 409)
+            if creative:
+                try:
+                    return self.send_json(commerce.creative_change(self.conn, creative[1], data), 202)
+                except (KeyError, TypeError, ValueError) as exc:
+                    return self.send_json({"ok":False, "error":str(exc)}, 409)
+            amendment = re.fullmatch(r"/p/([^/]+)/change-order/([^/]+)/accept", path)
+            additional = re.fullmatch(r"/p/([^/]+)/additional-work", path)
+            if amendment or additional:
+                try:
+                    if amendment:
+                        result = commerce.accept_order(self.conn, *amendment.groups())
+                    else:
+                        result = commerce.request_change(self.conn, additional[1], data.get("body"), data.get("request_id"), data.get("reference"))
+                    return self.send_json(result)
+                except (ValueError, KeyError, TypeError):
+                    return self.send_json({"ok": False, "error": "request_unavailable"}, 409)
             if path.endswith("/accept"):
                 token = path[3:-7]
                 res = core.client_accept(self.conn, token, data.get("option_id"))
@@ -347,7 +463,9 @@ class Handler(BaseHTTPRequestHandler):
             if path.endswith("/request-change"):
                 token = path[3:-15]
                 version = core.published_by_token(self.conn, token)
-                if not version:
+                if not version or version["status"] != "published":
+                    # Confirmed bookings no longer take changes on the client
+                    # link; generic 404, same as any invalid token.
                     return self.send_json({"ok": False, "error": "not_found"}, 404)
                 request_id = data.get("request_id") or secrets.token_hex(8)
                 try:
@@ -359,7 +477,8 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     if str(exc) == "stale_version":
                         return self.send_json({"ok": False, "error": "not_found"}, 404)
-                    return self.send_json({"ok": False, "error": str(exc)}, 400)
+                    status = 409 if str(exc) == "request_id_conflict" else 400
+                    return self.send_json({"ok": False, "error": str(exc)}, status)
                 if offer_id is None:
                     return self.send_json({"ok": True, "status": "clarify", "offer_id": None,
                                            "message": "Change request queued for clarification"}, 202)
@@ -375,10 +494,7 @@ class Handler(BaseHTTPRequestHandler):
         if not version:
             return self.not_found()
         try:
-            option_rows = core.options_of(self.conn, version)
-            valid = (version["outbound_status"] == "passed"
-                     and core.digest(version, option_rows) == version["checked_digest"]
-                     and not core.option_set_errors(self.conn, version))
+            valid = not core.release_integrity_errors(self.conn, version)
         except (KeyError, TypeError, ValueError):
             valid = False
         if not valid:
@@ -399,8 +515,9 @@ def quote_page():
 <style>__QUOTE_STYLE__</style></head>
 <body><header><span class="badge">__SAMPLE_BADGE__</span></header>
 <main><h1>Request a quote</h1>
+<p><a href="/inquire">Discuss your brief and upload a reference</a></p>
 <p class="lede">Tell us about your video project. We reply with a clear, fixed-price proposal.</p>
-<form class="quote-form" method="post" action="/quote"><input type="hidden" name="request_id" value="QUOTE_REQUEST_ID">
+<form class="quote-form" method="post" action="/quote"><input type="hidden" name="request_id" value="QUOTE_REQUEST_ID"><input type="hidden" name="resume_proof" value="QUOTE_RESUME_PROOF">
 <label>Name / business<input name="name_business" required></label><label>Reply email<input type="email" name="reply_email" required></label>
 <label>Project brief<textarea name="project_brief" required></textarea></label>
 <label>Video format<input name="video_format" required></label>
@@ -422,6 +539,7 @@ def quote_page():
 <script>document.getElementById('preset').onclick = () => {const f=document.querySelector('form');
 for (const [k,v] of Object.entries({editing_level:'standard',graphics:'basic_titles',scripting:'light',revision_rounds:2,interviewees:0,shoot_days:1,locations:1,production_mode:'on_location'})) f.elements[k].value=v;};</script></body></html>"""
     return (page.replace("QUOTE_REQUEST_ID", secrets.token_urlsafe(18))
+                .replace("QUOTE_RESUME_PROOF", secrets.token_urlsafe(32))
                 .replace("__SAMPLE_BADGE__", SAMPLE_BADGE)
                 .replace("__QUOTE_STYLE__", QUOTE_STYLE))
 
@@ -449,6 +567,15 @@ def render_client_html(conn, version, preview=False):
     boundary: no floor, capacity, internal metrics or other client names."""
     option_rows = core.options_of(conn, version)
     selected = version["selected_option_id"]
+    selected_terms = next((db.uj(r["public_terms_json"]) for r in option_rows
+                           if r["id"] == selected), None)
+    if selected_terms is None and option_rows:
+        selected_terms = db.uj(option_rows[0]["public_terms_json"])
+    selected_terms = selected_terms or {}
+    try:
+        composed = commerce._page(db.uj(version["page_json"]) if version["page_json"] else {})
+    except (KeyError, TypeError, ValueError):
+        composed = {"headline": "", "introduction": "", "sections": [], "portfolio": []}
     accepted = None
     if version["accepted_at"]:
         accept_row = conn.execute(
@@ -473,7 +600,9 @@ def render_client_html(conn, version, preview=False):
         elif accepted:
             button = ("<button type='button' disabled>Accept this option</button>"
                       if row["id"] != accepted else
-                      "<button type='button' disabled>Accepted — awaiting Alex</button>")
+                      ("<button type='button' disabled>Booking confirmed</button>"
+                       if version["status"] == "confirmed" else
+                       "<button type='button' disabled>Accepted — awaiting Alex</button>"))
         else:
             button = ("<form method='post' onsubmit=\"return submitAccept(event, '{0}')\">"
                       "<button type='submit'>Accept this option</button></form>"
@@ -491,15 +620,18 @@ def render_client_html(conn, version, preview=False):
             {button}
           </div>""")
     if accepted:
-        status_banner = ("<p class='accepted'>Thank you — your acceptance is recorded"
-                         " and awaits confirmation from Alex.</p>")
+        status_banner = (
+            "<p class='accepted'>Thank you — your booking is confirmed. Alex will be in touch.</p>"
+            if version["status"] == "confirmed" else
+            "<p class='accepted'>Thank you — your acceptance is recorded"
+            " and awaits confirmation from Alex.</p>")
         change_form = ""
     elif preview:
         status_banner = "<p class='chip'>Owner preview — nothing has been sent.</p>"
         change_form = ""
     else:
         status_banner = ""
-        change_form = """
+        change_form = f"""
         <form class="rc" method="post" onsubmit="return submitChangeForm(event)">
           <label for="rc">Request a change</label>
           <textarea id="rc" name="body" placeholder=
@@ -508,26 +640,46 @@ def render_client_html(conn, version, preview=False):
            counters below state the terms — nothing is inferred from the free text.</p>
           <div class="ctl">
             <label class="rc-field">Videos
-              <input id="rc-count" type="number" min="1" value="5"></label>
+              <input id="rc-count" type="number" min="1" value="{int(selected_terms.get('deliverables', 1))}"></label>
             <label class="rc-field">Captioned versions
-              <input id="rc-captions" type="number" min="0" value="5"></label>
+              <input id="rc-captions" type="number" min="0" value="{int(selected_terms.get('caption_versions', 0))}"></label>
             <label class="rc-field">Deadline
-              <input id="rc-deadline" value="2026-12-04"></label>
+              <input id="rc-deadline" type="date" value="{_esc(selected_terms.get('deadline', ''))}"></label>
             <label class="rc-field">Budget S$
-              <input id="rc-budget" type="number" step="0.01" value="2700"></label>
+              <input id="rc-budget" type="number" step="0.01" value="{selected_terms.get('price_sgd', 0)}"></label>
             <button type="submit">Send change request</button>
           </div>
         </form>"""
     title = "Alex Studio — your proposal" if not preview else "Owner preview — client page"
+    story_html = commerce.proposal_html(conn, version, preview)
+    if composed["headline"]:
+        story_html = story_html.replace('<section class="proposal-story"><h2>' + _esc(composed["headline"]) + '</h2>', '<section class="proposal-story">', 1)
+    if composed["introduction"]:
+        story_html = story_html.replace('<section class="proposal-story"><p>' + _esc(composed["introduction"]) + '</p>', '<section class="proposal-story">', 1)
+    featured = (portfolio.public_asset(conn, composed["portfolio"][0].get("asset_id", ""))
+                if composed["portfolio"] else None)
+    if featured:
+        src = _esc(featured["media_url"])
+        media = (f'<video controls preload="metadata" src="{src}" aria-label="Featured creative reference"></video>'
+                 if featured["mime"].startswith("video/") else
+                 f'<img src="{src}" alt="{_esc(featured["title"])}">')
+    else:
+        media = '<div class="preview-placeholder" aria-hidden="true">Alex Studio</div>'
+    has_composed = any((composed["headline"], composed["introduction"], composed["sections"], composed["portfolio"]))
+    nav = ("<nav class='proposal-nav' aria-label='Proposal sections'><a href='#concept'>Concept</a>"
+           "<a href='#portfolio'>References</a><a href='#packages'>Packages</a></nav>" if has_composed else "")
+    hero_title = composed["headline"] or title
+    hero_intro = composed["introduction"] or version["draft_body"]
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>{_esc(title)}</title>
 <style>{CLIENT_STYLE}</style></head><body>
-<header><span class="badge">{SAMPLE_BADGE}</span></header>
-<main><h1>{_esc(title)}</h1>
-<p class="lede">{_esc(version['draft_body'])}</p>
+<header class="client-header"><strong>Alex Studio</strong><span class="badge">{SAMPLE_BADGE}</span>{nav}</header>
+<main class="client-main"><section class="proposal-hero" id="concept"><div><span class="eyebrow">Proposal</span><h1>{_esc(hero_title)}</h1>
+<p class="lede">{_esc(hero_intro)}</p></div><div class="featured-preview" id="portfolio">{media}</div></section>
+<section class="proposal-content">{story_html}</section>
 {status_banner}
-<div class="cards">{''.join(cards)}</div>
+<section id="packages"><h2>Choose your package</h2><div class="cards">{''.join(cards)}</div></section>
 {change_form}
 <p id="msg" role="status" aria-live="polite"></p>
 <p class="small">Prices and dates come from the option cards above.</p>
@@ -541,10 +693,17 @@ function stableRequestId(payload) {{
   // outcome cannot create a duplicate change round. The page path (unique
   // per client link/deal) is part of the hash so equal texts on different
   // proposals never collide — request_id is globally unique in storage.
+  // Two independent hashes (djb2 + sdbm) make a collision between DIFFERENT
+  // payloads astronomically unlikely; the server additionally rejects any
+  // request_id reuse whose payload differs.
   const s = location.pathname + '|' + JSON.stringify(payload);
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return 'req-' + h.toString(16);
+  let h = 5381, g = 0;
+  for (let i = 0; i < s.length; i++) {{
+    const c = s.charCodeAt(i);
+    h = ((h << 5) + h + c) >>> 0;
+    g = (c + (g << 6) + (g << 16) - g) >>> 0;
+  }}
+  return 'req-' + h.toString(16) + '-' + g.toString(16);
 }}
 function setMsg(text) {{
   document.getElementById('msg').textContent = text;
@@ -730,6 +889,9 @@ def state(conn):
                 "comparables": (result or {}).get("comparables"),
                 "option_metrics": (result or {}).get("option_metrics"),
                 "capacity_stale": capacity_stale,
+                "impacts": [db.uj(row[0]) for row in conn.execute(
+                    "SELECT details FROM capacity_impacts WHERE version_id=? ORDER BY rowid DESC", (v["id"],))],
+                "pricing_evidence": (result or {}).get("historical_pricing"),
                 "comparison": _offer_comparison(offer_map, version_offer, v),
             })
         offers = []
@@ -947,9 +1109,49 @@ table.diff .diff-new { color: var(--ok); font-weight: 650; }
 .needs-info { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-border);
   border-left: 4px solid var(--warn); padding: 12px 16px; border-radius: var(--radius-sm); margin: 12px 0; }
 .needs-info code { background: rgba(255,255,255,.65); color: var(--warn); }
+.app-header { justify-content: space-between; padding: 14px 26px; }
+.brand-lockup { display: flex; align-items: center; gap: 9px; font-weight: 750; letter-spacing: -.02em; }
+.brand-mark { width: 23px; height: 23px; background: var(--accent); border-radius: 6px; display: inline-block; position: relative; }
+.brand-mark:before, .brand-mark:after { content: ""; position: absolute; bottom: 5px; width: 4px; background: #fff; border-radius: 2px; }
+.brand-mark:before { height: 12px; left: 6px; }.brand-mark:after { height: 8px; right: 5px; }
+.brand-subtitle { color: var(--muted); font-size: 13px; font-weight: 600; padding-left: 2px; }
+.header-meta { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.founder-shell { max-width: 1280px; min-height: calc(100vh - 58px); margin: 0 auto; padding: 0; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+.deal-sidebar { border-right: 1px solid var(--border); padding: 25px 12px 18px; background: var(--surface); display: flex; flex-direction: column; gap: 20px; }
+.sidebar-heading { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; padding: 0 9px; }
+.sidebar-nav { display: grid; gap: 3px; margin-top: -12px; }.sidebar-filter { color: var(--text); background: transparent; border: 0; text-align: left; padding: 9px; border-radius: 7px; font-size: 13px; font-weight: 650; display: flex; justify-content: space-between; }
+.sidebar-filter:hover, .sidebar-filter.is-active { background: var(--neutral-bg); color: var(--text); border: 0; }.sidebar-filter span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.queue-heading { margin-top: -4px; }.deal-queue { display: grid; gap: 4px; margin-top: -12px; }.queue-deal { width: 100%; background: transparent; color: var(--text); border: 0; border-left: 3px solid transparent; border-radius: 0 7px 7px 0; text-align: left; padding: 9px 8px; }
+.queue-deal:hover, .queue-deal.is-selected { background: var(--neutral-bg); border-color: var(--accent); color: var(--text); }.queue-line { display: flex; gap: 8px; justify-content: space-between; align-items: start; font-size: 13px; }.queue-meta { display: block; color: var(--muted); font-size: 11.5px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.queue-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); margin-top: 5px; flex: 0 0 auto; }.queue-dot.blocked { background: var(--danger); }.queue-dot.approved, .queue-dot.booked { background: var(--ok); }
+.sidebar-sync { color: var(--muted); font-size: 11.5px; line-height: 1.5; border-top: 1px solid var(--border); margin: auto 8px 0; padding-top: 14px; }
+.workspace-main { min-width: 0; padding: 24px 30px 60px; }.workspace-toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin: 0 auto 16px; max-width: 900px; }.workspace-toolbar .ctl { margin: 0; }
+.operator-tools { max-width: 900px; margin: 32px auto 0; border-top: 1px solid var(--border); padding-top: 12px; }.operator-tools > summary { color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 650; }.operator-tools fieldset { box-shadow: none; }
+.workbench { max-width: 900px; margin: 0 auto; }.workbench-header { display: flex; justify-content: space-between; align-items: start; gap: 20px; margin: 12px 0 18px; }.workbench-header h1 { margin: 0; }.workbench-subtitle { color: var(--muted); margin: 3px 0 0; font-size: 14px; }
+.next-step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin: 18px 0 12px; box-shadow: var(--shadow); }.next-step-label { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }.next-step h2 { font-size: 18px; margin: 4px 0; }.next-step p { color: var(--muted); margin: 0; font-size: 14px; }.next-step .ctl { margin: 16px 0 0; }
+.workbench details { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 10px; overflow: hidden; }.workbench details > summary { cursor: pointer; font-size: 14px; font-weight: 700; padding: 13px 16px; }.workbench details[open] > summary { border-bottom: 1px solid var(--border); }.detail-inner { padding: 2px 16px 16px; }.detail-inner > :last-child { margin-bottom: 0; }
+.workbench .stage-timeline { margin-bottom: 0; }.workbench .stage { box-shadow: none; }.workbench .vblock { border-top: 0; padding-top: 0; margin-top: 0; }.workbench .vblock > h3 { display: none; }.workbench .draft { min-height: 116px; }.workbench .cards { margin-top: 10px; }
+@media (max-width: 780px) { .founder-shell { display: block; }.deal-sidebar { border-right: 0; border-bottom: 1px solid var(--border); padding: 16px; gap: 12px; }.deal-queue { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }.sidebar-sync { display: none; }.workspace-main { padding: 20px 16px 48px; }.workbench-header, .workspace-toolbar { align-items: start; flex-direction: column; }.app-header { padding: 13px 16px; }.header-meta { justify-content: start; } }
 """
 
 CLIENT_STYLE = BASE_STYLE + """
+.client-header { position: sticky; top: 0; z-index: 10; justify-content: space-between; }
+.client-header strong { font-size: 18px; letter-spacing: -.02em; }
+.proposal-nav { display: flex; gap: 18px; margin-left: auto; }
+.proposal-nav a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 650; }
+.client-main { max-width: 1160px; }
+.proposal-hero { display: grid; grid-template-columns: minmax(0,.9fr) minmax(320px,1.1fr);
+  gap: 42px; align-items: center; padding: 36px 0 46px; }
+.proposal-hero h1 { font-size: clamp(34px,5vw,58px); line-height: 1.05; margin: 8px 0 18px; }
+.proposal-hero .lede { font-size: 19px; max-width: 58ch; }
+.eyebrow { color: var(--accent-strong); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.featured-preview { aspect-ratio: 16/10; overflow: hidden; border-radius: 20px; background: #dce8e5;
+  box-shadow: 0 20px 50px rgba(15,23,42,.14); }
+.featured-preview video, .featured-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.preview-placeholder { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent-strong);
+  font-size: clamp(24px,5vw,52px); font-weight: 750; background: linear-gradient(145deg,#d9efea,#f5eadc); }
+.proposal-content > .proposal-story > section { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 22px; }
+#concept, #portfolio, #packages { scroll-margin-top: 86px; }
 p.accepted { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-border);
   border-left: 4px solid var(--ok); padding: 12px 16px; border-radius: var(--radius-sm); font-weight: 600; }
 form.rc { margin-top: 24px; }
@@ -957,6 +1159,15 @@ form.rc textarea { min-height: 128px; }
 form.rc .ctl { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin: 10px 0; }
 label.rc-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px;
   color: var(--muted); font-weight: 650; }
+@media (max-width: 760px) {
+  .client-header { align-items: flex-start; }
+  .proposal-nav { width: 100%; order: 3; margin: 2px 0 0; justify-content: space-between; gap: 8px; }
+  .proposal-hero { grid-template-columns: 1fr; gap: 24px; padding: 26px 0 34px; }
+  .proposal-hero h1 { font-size: 36px; }
+  .featured-preview { min-height: 220px; }
+  form.rc .ctl { display: grid; grid-template-columns: 1fr 1fr; }
+  form.rc .ctl button { grid-column: 1/-1; width: 100%; }
+}
 """
 
 QUOTE_STYLE = _DESIGN_BASE + """
@@ -1019,13 +1230,27 @@ def founder_page(conn):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BidPilot — founder dashboard (private)</title>
 <style>{FOUNDER_STYLE}</style></head><body>
-<header><span class="badge">{SAMPLE_BADGE}</span>
- <span class="badge dim">Private founder view — loopback only</span></header>
-<main>
-<h1>BidPilot founder dashboard</h1>
-<p class="lede">Sample-only demo. Evaluate inbound inquiries with the real engine,
- review the outbound-checked options, release a client link, and confirm bookings.</p>
-
+<header class="app-header"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"></span><span>BidPilot</span><span class="brand-subtitle">Sales desk</span></div>
+<div class="header-meta"><span class="badge">{SAMPLE_BADGE}</span>
+ <span class="badge dim">Private founder view</span></div></header>
+<main class="founder-shell">
+<aside class="deal-sidebar" aria-label="Deal navigation">
+  <div class="sidebar-heading">Studio tools</div>
+  <nav class="sidebar-nav studio-nav">
+    <a href="/inquire" target="_blank" rel="noopener">Buyer inquiry</a>
+    <a href="/portfolio" data-owner-link>Portfolio library</a>
+    <a href="/estimating" data-owner-link>Production estimates</a>
+    <a href="/commerce" data-owner-link>Proposals and amendments</a>
+  </nav><div class="sidebar-heading">Your work</div>
+  <nav class="sidebar-nav" aria-label="Deal views">
+    <button type="button" class="sidebar-filter is-active">Needs attention <span id="attention-count">0</span></button>
+    <button type="button" class="sidebar-filter">Active deals <span id="active-count">0</span></button>
+  </nav>
+  <div class="sidebar-heading queue-heading">Attention queue</div>
+  <div id="deal-queue" class="deal-queue" aria-live="polite"><p class="small">Loading deals…</p></div>
+  <p class="sidebar-sync">Inbound runs through Hashmeta and QwenWork.<br>Live state refreshes while this page is open.</p>
+</aside>
+<section class="workspace-main">
 <div class="release-panel" id="release-panel">
   <b>Client link released</b>
   <div class="row">
@@ -1039,10 +1264,15 @@ def founder_page(conn):
    Rotate / reissue — the old link stops working immediately. The token is never logged.</p>
 </div>
 <div class="error-box" id="error-box" role="alert"></div>
-<div class="ctl" aria-label="Dashboard updates">
-  <button type="button" class="ghost" id="live-updates" aria-pressed="true">Live updates on</button>
-  <button type="button" class="ghost" id="refresh-state">Refresh</button>
+<div class="workspace-toolbar" aria-label="Dashboard updates">
+  <span id="sync-status" class="small">QwenWork is watching inbound inquiries</span>
+  <div class="ctl"><button type="button" class="ghost" id="live-updates" aria-pressed="true">Live updates on</button>
+  <button type="button" class="ghost" id="refresh-state">Refresh</button></div>
 </div>
+<div id="root" class="empty-state"><span class="big">…</span><p>Loading deals…</p></div>
+
+<details class="operator-tools">
+<summary>Demo &amp; system tools</summary>
 
 <fieldset><legend>Sample intake</legend>
   <p class="small">Raw inbound message plus explicit structured inputs — validated by the
@@ -1110,15 +1340,13 @@ def founder_page(conn):
   <p id="reset-status" class="msg-line small" role="status"></p>
 </fieldset>
 
-<h2>Inbox</h2>
+<h2>Inbound inbox</h2>
 <div id="inbox" class="small">Loading inquiries…</div>
 
 <h2>Aggregate planning capacity (private)</h2>
 <div id="capacity" class="small">Loading capacity…</div>
-
-<h2>Deals</h2>
-<div id="root" class="empty-state"><span class="big">…</span><p>Loading deals…</p></div>
-</main>
+</details>
+</section></main>
 <script>
 const OWNER = new URLSearchParams(location.search).get('owner') || '';
 let currentRelease = {{version_id: null, url: null}};
@@ -1126,6 +1354,9 @@ let liveUpdates = true;
 let pollTimer;
 let stateRequest = 0;
 let renderedDeals;
+document.querySelectorAll('[data-owner-link]').forEach(link => link.search = '?owner=' + encodeURIComponent(OWNER));
+let latestDeals = [];
+let selectedDealId = null;
 let resetRequestId;
 
 async function api(path, data) {{
@@ -1278,6 +1509,7 @@ async function refreshState(automatic) {{
         + `<td>${{w.allocated_hours.toFixed(2)}} h</td><td>${{w.remaining_hours.toFixed(2)}} h</td></tr>`).join('')
       + `</table><p class="small">${{esc(c.note)}}</p>`;
   }}
+  latestDeals = st.deals;
   const dealSnapshot = JSON.stringify(st.deals);
   if (dealSnapshot === renderedDeals) return;
   if (automatic && root.contains(document.activeElement)
@@ -1285,14 +1517,7 @@ async function refreshState(automatic) {{
   if (automatic && Array.from(root.querySelectorAll('input, textarea'))
       .some(field => field.value !== field.defaultValue)) return;
   renderedDeals = dealSnapshot;
-  if (!st.deals.length) {{
-    root.innerHTML = '<div class="empty-state"><span class="big">·</span>' +
-      '<h2>No deals yet</h2><p class="muted">Load a labeled fixture above or fill in the' +
-      ' sample intake form to start the demo workflow.</p></div>';
-    return;
-  }}
-  root.classList.remove('empty-state');
-  root.innerHTML = st.deals.map(dealHtml).join('');
+  renderWorkspace(st.deals);
 }}
 function schedulePolling() {{
   clearInterval(pollTimer);
@@ -1316,7 +1541,11 @@ function money(v) {{ return v == null ? '—' : 'S$' + Number(v).toLocaleString(
 function hours(value) {{ return Number(value).toFixed(2); }}
 function esc(s) {{ const d = document.createElement('div');
   d.textContent = s == null ? '' : String(s);
-  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }}
+  // Keep HTML entities out of the raw script text.  Browsers treat script
+  // contents as raw text, but HTML extraction/sanitising tools may decode an
+  // entity before parsing the JavaScript.  Building the entity at runtime is
+  // safe in both cases.
+  return d.innerHTML.replace(/"/g, '&' + 'quot;').replace(/'/g, '&' + '#39;'); }}
 const PILL_TONE = {{new:'review', evaluated:'review', change_requested:'review',
   needs_information:'review', draft:'review', checked:'review', published:'approved',
   blocked:'blocked', confirmed:'booked', closed:'neutral', superseded:'neutral',
@@ -1326,6 +1555,48 @@ function statusChip(s) {{
   const tone = PILL_TONE[s] || 'review';
   const label = STATUS_LABELS[s] || String(s).replace(/_/g,' ');
   return '<span class="status-chip ' + esc(s) + ' pill-' + tone + '">' + esc(label) + '</span>';
+}}
+function latestVersion(d) {{ return d.versions.length ? d.versions[d.versions.length - 1] : null; }}
+function needsAttention(d) {{
+  const v = latestVersion(d);
+  return d.status === 'needs_information' || !v || ['evaluated', 'draft', 'blocked', 'checked'].includes(v.status)
+    || (v.status === 'published' && v.accepted_at && !v.confirmed);
+}}
+function queueTone(d) {{
+  const v = latestVersion(d);
+  if (v && v.status === 'blocked') return 'blocked';
+  if (v && ['published', 'confirmed'].includes(v.status)) return v.status === 'confirmed' ? 'booked' : 'approved';
+  return 'review';
+}}
+function selectDeal(dealId) {{
+  selectedDealId = dealId;
+  renderWorkspace(latestDeals);
+}}
+function renderWorkspace(deals) {{
+  const queue = document.getElementById('deal-queue');
+  const root = document.getElementById('root');
+  const attention = deals.filter(needsAttention);
+  document.getElementById('attention-count').textContent = attention.length;
+  document.getElementById('active-count').textContent = deals.filter(d => d.status !== 'closed').length;
+  if (!deals.length) {{
+    queue.innerHTML = '<p class="small">No deals yet.</p>';
+    root.className = 'empty-state';
+    root.innerHTML = '<span class="big">·</span><h2>No inquiries yet</h2><p class="muted">New Hashmeta inquiries will appear here after QwenWork claims them.</p>';
+    return;
+  }}
+  const ordered = [...deals].sort((a, b) => Number(needsAttention(b)) - Number(needsAttention(a)));
+  if (!selectedDealId || !deals.some(d => d.deal_id === selectedDealId)) selectedDealId = ordered[0].deal_id;
+  queue.innerHTML = ordered.map(d => {{
+    const selected = d.deal_id === selectedDealId ? ' is-selected' : '';
+    const v = latestVersion(d);
+    const meta = d.status === 'needs_information' ? 'Missing project details'
+      : (v ? (STATUS_LABELS[v.status] || v.status.replace(/_/g, ' ')) : 'Ready for evaluation');
+    return `<button type="button" class="queue-deal${{selected}}" onclick="selectDeal('${{d.deal_id}}')">
+      <span class="queue-line"><span>${{esc(d.client)}}</span><span class="queue-dot ${{queueTone(d)}}" aria-hidden="true"></span></span>
+      <span class="queue-meta">${{esc(meta)}}</span></button>`;
+  }}).join('');
+  root.className = '';
+  root.innerHTML = dealHtml(deals.find(d => d.deal_id === selectedDealId));
 }}
 const STEP_LABELS = {{claimed: 'Claimed', resume: 'Claimed (resume)', intake: 'Intake',
   needs_information: 'Needs information',
@@ -1474,28 +1745,37 @@ function agentOutputHtml(output) {{
   }}
 }}
 function dealHtml(d) {{
-  const offerRows = d.offers.map(o => {{
-    const fields = Object.entries(o.offer).map(([k, v]) =>
-      '<code>' + esc(k) + '</code> ' + esc(String(v))).join(' · ');
-    const action = o.evaluated ? '' :
-      `<button onclick="doEvaluate('${{d.deal_id}}','${{o.offer_id}}')">Evaluate</button>`;
-    return `<tr><td>Round ${{o.round}}</td><td>${{esc(o.as_of || '')}}</td>
-      <td class="small">${{fields}}</td>
-      <td>${{o.evaluated ? 'evaluated' : 'queued'}} ${{action}}</td></tr>`;
-  }}).join('');
-  const queuedHtml = d.queued_clarifications.length
-    ? `<div class="blocked">Awaiting founder clarification: ${{d.queued_clarifications.map(q =>
-        esc(q.private_note)).join(' | ')}}</div>` : '';
-  const needsInfoHtml = (d.status === 'needs_information')
-    ? `<div class="needs-info"><strong>Needs info — incomplete intake, not evaluated</strong>
-       <div class="small">Missing field paths: ${{((d.needs_information && d.needs_information.missing_fields) || []).map(f => '<code>' + esc(f) + '</code>').join(', ') || '<span class="muted">none recorded</span>'}}.
-       No defaults were fabricated. Supply the missing values, then claim_intake again with the same source / source_id to resume this deal.</div></div>`
-    : '';
-  const confirmBtn = d.versions.filter(v => v.status === 'published' && v.accepted_at)
-    .map(v => `<button class="danger" id="confirm-${{v.version_id}}"
-      onclick="doConfirm('${{v.version_id}}')">Confirm booking (sample only)</button>`).join('');
-  const closeBtn = d.status === 'confirmed'
-    ? `<button onclick="doClose('${{d.deal_id}}')">Close deal</button>` : '';
+  const v = latestVersion(d);
+  const latestOffer = d.offers[d.offers.length - 1];
+  const offer = latestOffer && latestOffer.offer;
+  const missing = (d.needs_information && d.needs_information.missing_fields) || [];
+  let nextTitle = 'Wait for QwenWork';
+  let nextCopy = 'This deal is being prepared from the saved inquiry.';
+  let nextActions = '';
+  if (d.status === 'needs_information') {{
+    nextTitle = missing.length ? 'Ask for the missing project details' : 'Await the client’s clarification';
+    nextCopy = 'The inquiry is saved and no estimate was invented. QwenWork drafted a targeted follow-up before intake can resume.';
+  }} else if (!v && latestOffer) {{
+    nextTitle = 'Run the estimate';
+    nextCopy = 'The intake is saved. Evaluate the structured offer against current capacity and pricing rules.';
+    nextActions = `<button onclick="doEvaluate('${{d.deal_id}}','${{latestOffer.offer_id}}')">Evaluate offer</button>`;
+  }} else if (v && ['evaluated', 'draft', 'blocked'].includes(v.status)) {{
+    nextTitle = v.status === 'blocked' ? 'Repair the outbound draft' : 'Check the proposal before release';
+    nextCopy = v.status === 'blocked' ? 'The outbound gate blocked this version. Keep private numbers out of client-facing copy, then run the check again.' : 'BidPilot has an engine-backed proposal. The outbound gate must pass before it can be released.';
+    nextActions = `<button onclick="doCheck('${{v.version_id}}')">Run outbound check</button>`;
+  }} else if (v && v.status === 'checked') {{
+    nextTitle = 'Release the approved proposal';
+    nextCopy = 'The current version passed the outbound gate. Releasing creates a client-safe link; private estimates stay here.';
+    nextActions = `<button onclick="doApprove('${{v.version_id}}')">Release client proposal</button>`;
+  }} else if (v && v.status === 'published' && v.accepted_at && !v.confirmed) {{
+    nextTitle = 'Confirm the client’s selection';
+    nextCopy = 'The client selected an approved option. Confirming revalidates capacity before creating the sample booking.';
+    nextActions = `<button id="confirm-${{v.version_id}}" onclick="doConfirm('${{v.version_id}}')">Confirm booking</button>`;
+  }} else if (v && ['published', 'confirmed'].includes(v.status)) {{
+    nextTitle = v.status === 'confirmed' ? 'Booking is confirmed' : 'Wait for the client’s reply';
+    nextCopy = v.status === 'confirmed' ? 'Capacity is allocated to the confirmed booking.' : 'The client has the latest approved proposal. BidPilot will queue any change request for review.';
+    nextActions = `<button class="ghost" onclick="openPreview('${{v.version_id}}')">Preview sent proposal</button>`;
+  }}
   const firstOffer = d.offers[0]?.offer_id;
   const roundForStep = s => s.offer_id || (['intake', 'resume'].includes(s.step_key) ? firstOffer : null);
   const rounds = d.offers.map(o => `<section aria-label="Run round ${{o.round}}">
@@ -1505,43 +1785,23 @@ function dealHtml(d) {{
     </section>`).join('');
   const dealActivity = timelineHtml(d.steps.filter(s => !roundForStep(s)))
     + d.agent_outputs.filter(a => !a.offer_id).map(agentOutputHtml).join('');
-  return `<section class="deal" id="deal-${{d.deal_id.slice(0,8)}}">
-    <h2>${{esc(d.client)}} ${{statusChip(d.status)}}
-      <span class="muted small">${{esc(d.source)}}/${{esc(d.source_id)}}</span></h2>
-    <p class="quote">“${{esc(d.raw_inquiry || '')}}”</p>
-    ${{queuedHtml}}
+  const options = v ? versionHtml(d, v) : '<p class="small muted">No proposal version exists yet.</p>';
+  const needsInfoHtml = d.status === 'needs_information' ? `<div class="needs-info"><strong>Incomplete inquiry — no estimate created</strong><div class="small">Missing: ${{missing.map(f => '<code>' + esc(f) + '</code>').join(', ') || 'details not recorded'}}. QwenWork will resume this same deal when the client replies.</div></div>` : '';
+  const closeBtn = d.status === 'confirmed' ? `<button class="ghost" onclick="doClose('${{d.deal_id}}')">Close deal</button>` : '';
+  return `<section class="workbench" id="deal-${{d.deal_id.slice(0,8)}}">
+    <div class="workbench-header"><div><h1>${{esc(d.client)}} ${{statusChip(d.status)}}</h1><p class="workbench-subtitle">${{esc(d.source)}} inquiry · ${{esc(d.source_id)}}</p></div></div>
+    <section class="next-step"><div class="next-step-label">Next step</div><h2>${{esc(nextTitle)}}</h2><p>${{esc(nextCopy)}}</p><div class="ctl">${{nextActions}}${{closeBtn}}</div></section>
     ${{needsInfoHtml}}
-    <h3>Deal timeline</h3>
-    <p class="small">Private founder view: intake → scoping → engine → draft → outbound
-     check → review → client response → booking, built from the run steps and agent
-     outputs. Blocked stages are red.</p>
-    ${{stageTimelineHtml(d)}}
-    <h3>Inbound offers &amp; rounds</h3>
-    <table><tr><th>Round</th><th>as_of</th><th>Structured offer (engine-validated)</th>
-      <th>State</th></tr>${{offerRows}}</table>
-    ${{d.versions.map(v => versionHtml(d, v)).join('')}}
-    <div class="ctl">${{confirmBtn}}${{closeBtn}}</div>
-    <h3>Run steps</h3>
-    ${{dealActivity ? '<h4>Deal activity</h4>' + dealActivity : ''}}
-    ${{rounds}}
-    <h3>Audit trail (approvals &amp; confirmations)</h3>
-    <table><tr><th>action</th><th>note</th><th>digest</th></tr>
-    ${{d.approvals.map(a => `<tr><td>${{esc(a.action)}}</td><td>${{esc(a.note)}}</td>
-      <td><span class="small">${{esc(String(a.reviewed_digest||'').slice(0,12))}}…</span></td></tr>`).join('')}}</table>
-    <h3>Messages</h3>
-    <ul>${{d.messages.map(m => `<li><b>${{esc(m.direction)}}</b> ${{esc(m.body)}}
-      ${{m.request_id ? '<code>'+esc(m.request_id)+'</code>' : ''}}</li>`).join('')}}</ul>
-    <h3>Record a demo client change request</h3>
-    <p class="small">Explicit structured terms — nothing is inferred from free text.
-     The five captioned versions below are stated, not assumed.</p>
-    <form class="intake" onsubmit="return submitChange(event, '${{d.deal_id}}')">
-      <label>Videos<input id="chg-count-${{d.deal_id.slice(0,8)}}" value="5" type="number" min="1"></label>
-      <label>Caption versions<input id="chg-caps-${{d.deal_id.slice(0,8)}}" value="5" type="number" min="0"></label>
-      <label>Deadline<input id="chg-deadline-${{d.deal_id.slice(0,8)}}" value="2026-12-04"></label>
-      <label>Budget S$<input id="chg-budget-${{d.deal_id.slice(0,8)}}" value="2700" type="number" step="0.01"></label>
-      <label class="wide"><button type="submit">Queue change request</button></label>
-    </form>
-    <p class="msg-line small" id="msg-${{d.deal_id.slice(0,8)}}" role="status" aria-live="polite"></p>
+    <details><summary>Brief &amp; source evidence</summary><div class="detail-inner"><p class="quote">“${{esc(d.raw_inquiry || '')}}”</p>
+      ${{offer ? `<table><tr><th>Format</th><td>${{esc(offer.format)}}</td><th>Delivery</th><td>${{esc(offer.deliverables)}} videos by ${{esc(offer.deadline)}}</td></tr><tr><th>Budget</th><td>${{money(offer.budget_sgd)}}</td><th>Production</th><td>${{esc(offer.production_mode)}}</td></tr></table>` : '<p class="small muted">Structured intake is not available yet.</p>'}}
+      ${{d.agent_outputs.filter(a => a.kind === 'intake' || a.kind === 'clarification').map(agentOutputHtml).join('')}}</div></details>
+    <details open><summary>Proposal &amp; checks</summary><div class="detail-inner">${{options}}</div></details>
+    <details><summary>Deal timeline &amp; run audit</summary><div class="detail-inner"><p class="small">Private run history from intake through booking. Blocked stages remain visible for review.</p>${{stageTimelineHtml(d)}}
+      ${{dealActivity ? '<h4>Deal activity</h4>' + dealActivity : ''}}${{rounds}}
+      <h4>Audit trail</h4><table><tr><th>Action</th><th>Note</th><th>Digest</th></tr>${{d.approvals.map(a => `<tr><td>${{esc(a.action)}}</td><td>${{esc(a.note)}}</td><td><span class="small">${{esc(String(a.reviewed_digest||'').slice(0,12))}}…</span></td></tr>`).join('')}}</table></div></details>
+    <details><summary>Client messages &amp; demo change request</summary><div class="detail-inner"><ul>${{d.messages.map(m => `<li><b>${{esc(m.direction)}}</b> ${{esc(m.body)}} ${{m.request_id ? '<code>'+esc(m.request_id)+'</code>' : ''}}</li>`).join('') || '<li class="muted">No client messages yet.</li>'}}</ul>
+      <form class="intake" onsubmit="return submitChange(event, '${{d.deal_id}}')"><label>Videos<input id="chg-count-${{d.deal_id.slice(0,8)}}" value="5" type="number" min="1"></label><label>Caption versions<input id="chg-caps-${{d.deal_id.slice(0,8)}}" value="5" type="number" min="0"></label><label>Deadline<input id="chg-deadline-${{d.deal_id.slice(0,8)}}" value="2026-12-04"></label><label>Budget S$<input id="chg-budget-${{d.deal_id.slice(0,8)}}" value="2700" type="number" step="0.01"></label><label class="wide"><button type="submit">Queue change request</button></label></form>
+      <p class="msg-line small" id="msg-${{d.deal_id.slice(0,8)}}" role="status" aria-live="polite"></p></div></details>
    </section>`;
 }}
 function reasonLinkHtml(v) {{
@@ -1619,7 +1879,8 @@ function versionHtml(d, v) {{
       <p class="price">${{money(o.price_sgd)}}</p>
       ${{phases ? `<ul class="phases">${{phases}}</ul>` : ''}}
       <p class="small">${{o.caption_versions}} caption versions · ${{o.revision_rounds}} revisions
-        · kind: <code>${{esc(o.option_id)}}</code></p>${{acc}}</div>`;
+        · kind: <code>${{esc(o.option_id)}}</code></p>${{acc}}
+      ${{['draft','checked','published'].includes(v.status) ? `<button type="button" class="ghost" onclick="previewCapacity('${{v.version_id}}','${{rowId}}',this)">What if they book?</button><p role="status" class="small"></p>` : ''}}</div>`;
   }}).join('');
   const banner = v.outbound_status === 'blocked'
     ? `<p class="blocked">Blocked by outbound check</p>`
@@ -1632,24 +1893,26 @@ function versionHtml(d, v) {{
     — ${{v.accepted_option.terms ? v.accepted_option.terms.deliverables + ' videos by ' +
       v.accepted_option.terms.deadline + ' for ' + money(v.accepted_option.terms.price_sgd) : ''}}
     ${{v.confirmed ? '· booking confirmed' : '· awaiting your confirmation'}}</p>` : '';
-  const canAct = ['draft','blocked','checked','evaluated'].includes(v.status) && !v.confirmed;
-  const previewBtn = `<button class="ghost"
-    onclick="openPreview('${{v.version_id}}')">Preview client page</button>`;
+  const canEdit = ['draft','blocked','checked','evaluated'].includes(v.status) && !v.confirmed;
+  const needsCheck = ['draft','blocked','evaluated'].includes(v.status) && !v.confirmed;
+  const canRelease = v.status === 'checked' && !v.confirmed;
+  const previewBtn = (v.status === 'published' || v.status === 'confirmed')
+    ? `<button class="ghost" onclick="openPreview('${{v.version_id}}')">Preview sent proposal</button>` : '';
   const rotateBtn = (v.status === 'published' || v.status === 'confirmed')
     ? `<button class="ghost" onclick="doRotate('${{v.version_id}}')">Rotate / reissue client link</button>`
     : '';
   return `<div class="vblock">
     <h3>Version ${{v.version_no}} — ${{statusChip(v.status)}}
       <span class="muted small">outbound: ${{esc(v.outbound_status)}}</span></h3>
-    ${{estHtml}}${{whatChangedHtml(v)}}${{comps}}${{banner}}${{staleCap}}
+    ${{estHtml}}${{v.pricing_evidence ? '<p class="small"><b>Historical pricing</b> · '+esc(v.pricing_evidence.status)+' · '+esc((v.pricing_evidence.samples || []).map(p=>p.project_id+' '+money(p.price_sgd)).join(', '))+'</p>' : ''}}${{(v.impacts || []).map(i => '<p class="blocked">Booking changed availability for ' + esc(i.lost.map(o => o.deliverables + ' videos by ' + o.deadline).join(', ')) + '.</p>').join('')}}${{whatChangedHtml(v)}}${{comps}}${{banner}}${{staleCap}}
     <div class="cards">${{optCards}}</div>
     ${{acceptInfo}}
-    <textarea class="draft" id="draft-${{v.version_id}}">${{esc(v.draft)}}</textarea>
+    ${{canEdit ? `<label class="small" for="draft-${{v.version_id}}">Client-facing draft</label><textarea class="draft" id="draft-${{v.version_id}}">${{esc(v.draft)}}</textarea>` : `<p class="quote">${{esc(v.draft)}}</p>`}}
     <div class="ctl">
-      ${{canAct ? `<button onclick="doCheck('${{v.version_id}}')">Check</button>
-        <button onclick="doEdit('${{v.version_id}}')">Save draft (new version)</button>
-        <button onclick="doApprove('${{v.version_id}}')">Approve &amp; release</button>
+      ${{needsCheck ? `<button onclick="doCheck('${{v.version_id}}')">Run outbound check</button>` : ''}}
+      ${{canEdit ? `<button class="ghost" onclick="doEdit('${{v.version_id}}')">Save revised draft</button>
         <button class="danger" onclick="doReject('${{v.version_id}}')">Reject</button>` : ''}}
+      ${{canRelease ? `<button onclick="doApprove('${{v.version_id}}')">Release client proposal</button>` : ''}}
       ${{previewBtn}}${{rotateBtn}}
     </div>
     <div id="msg-${{v.version_id}}" role="status" aria-live="polite" class="small msg-line"></div>
@@ -1659,6 +1922,18 @@ function msg(id, text) {{
   const el = document.getElementById('msg-' + id);
   if (el) el.textContent = text;
   else showError(text);
+}}
+async function previewCapacity(version, option, button) {{
+  const output = button.nextElementSibling;
+  const r = await api('/api/capacity-preview', {{version_id: version, option_id: option}});
+  if (!r.data.ok || !r.data.fits) {{
+    output.textContent = r.data.error || 'This option no longer fits the available capacity.';
+    return;
+  }}
+  const weeks = r.data.weeks.map(w => w.week + ': ' + hours(w.before) + ' → ' + hours(w.after) + ' free');
+  const conflicts = r.data.affected.map(d => d.client + ': ' + d.lost.map(o => o.deliverables + ' videos by ' + o.deadline).join(', ')
+      + ' would no longer fit (' + d.remaining + ' other feasible options).');
+  output.textContent = weeks.concat(conflicts.length ? conflicts : ['Other outstanding proposals still fit.']).join(' · ');
 }}
 async function doEvaluate(dealId, offerId) {{
   const r = await api('/api/evaluate', {{deal_id: dealId, offer_id: offerId}});
@@ -1699,7 +1974,8 @@ async function doApprove(id) {{
   refresh();
 }}
 async function doReject(id) {{ const r = await api('/api/reject', {{version_id: id}});
-  msg(id, 'Rejected; nothing released.'); refresh(); }}
+  msg(id, r.data.ok ? 'Rejected; nothing released.'
+    : 'Reject refused: ' + (r.data.reasons || []).join(', ')); refresh(); }}
 async function doRotate(versionId) {{
   const r = await api('/api/rotate-token', {{version_id: versionId}});
   if (r.data.ok) {{
@@ -1745,9 +2021,13 @@ async function submitChange(ev, dealId) {{
   const budget = document.getElementById('chg-budget-' + k).value;
   const body = count + ' videos, ' + caps + ' captioned versions by ' + deadline +
     ' for S$' + budget;
-  let h = 5381; const s = dealId + '|' + body;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  const requestId = 'founder-' + h.toString(16);
+  let h = 5381, g = 0; const s = dealId + '|' + body;
+  for (let i = 0; i < s.length; i++) {{
+    const c = s.charCodeAt(i);
+    h = ((h << 5) + h + c) >>> 0;
+    g = (c + (g << 6) + (g << 16) - g) >>> 0;
+  }}
+  const requestId = 'founder-' + h.toString(16) + '-' + g.toString(16);
   const r = await api('/api/client-change', {{deal_id: dealId,
     request_id: requestId, body: body}});
   msg(k, r.data.ok ? (r.data.status === 'clarify'
@@ -1761,12 +2041,36 @@ refresh();
 schedulePolling();
 </script></body></html>"""
 
-def make_server(db_path, port=0):
+class StudioServer(ThreadingHTTPServer):
+    """One media consumer per serving process. SQLite leases coordinate restarts."""
+    def serve_forever(self, poll_interval=0.5):
+        stop = threading.Event()
+        def consume():
+            while not stop.is_set():
+                try:
+                    if conversation.process_media_once(self.db_path):
+                        continue
+                except (OSError, ValueError, sqlite3.Error):
+                    pass
+                stop.wait(1)
+        worker = threading.Thread(target=consume, name="reference-media", daemon=True)
+        worker.start()
+        try:
+            super().serve_forever(poll_interval)
+        finally:
+            stop.set()
+            worker.join(timeout=2)
+
+
+def make_server(db_path, port=0, public_origin=None, embed_origin=None):
     """Build a server on loopback with a fresh per-launch owner token.
 
     Returns (server, owner_token). The owner token is only shown in the
     launching console; it is never logged or written to disk.
     """
+    public_origin = https_origin(public_origin) if public_origin else None
+    embed_origins = ([https_origin(part.strip()) for part in embed_origin.split(",") if part.strip()]
+                     if embed_origin else [])
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = db.connect(db_path)
@@ -1774,8 +2078,10 @@ def make_server(db_path, port=0):
         core.load_seed(conn)
     finally:
         conn.close()
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = StudioServer(("127.0.0.1", port), Handler)
     server.db_path = db_path
+    server.public_origin = public_origin
+    server.embed_origins = embed_origins
     server.owner_token = secrets.token_urlsafe(24)
     return server, server.owner_token
 
@@ -1784,8 +2090,10 @@ def main():
     parser = argparse.ArgumentParser(description="Run the loopback-only BidPilot dashboard.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--db", type=Path, default=DB_PATH)
+    parser.add_argument("--public-origin", type=https_origin, help="HTTPS origin served by the buyer-facing reverse proxy")
+    parser.add_argument("--embed-origin", help="Comma-separated HTTPS origins allowed to embed the inquiry (Hashmeta site and any embed shell host)")
     args = parser.parse_args()
-    server, owner_token = make_server(args.db, args.port)
+    server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin)
     port = server.server_address[1]
     with server:
         print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token}",
