@@ -43,7 +43,7 @@ class StudioAssistantTests(unittest.TestCase):
     FILLERS = {'Format':'project_type', 'Production':'production.mode', 'Shoot days':'shoot_days',
                'Locations':'locations', 'Videos':'video_count', 'Captioned versions':'captions',
                'Scripting':'scripting', 'Revision rounds':'revision_rounds', 'Deadline':'deadline',
-               'Editing':'editing'}
+               'Editing':'editing', 'Your budget':'budget_sgd'}
 
     def fill_brief(self):
         """Confirm any required brief field the scenario left empty, so /submit is allowed."""
@@ -63,9 +63,9 @@ class StudioAssistantTests(unittest.TestCase):
         ctx = chat.context(self.c, {'inquiry_id':self.i})
         submission = {'revision':ctx['revision'], 'sequence':ctx['processed_sequence']}
         state = json.loads(request(self.base, 'GET', self.url+'/state')[1])
-        self.assertEqual(len(state['missing']), 9)
+        self.assertEqual(len(state['missing']), 10)
         self.assertNotIn('Videos', state['missing'])
-        self.assertNotIn('Your budget', state['missing'])
+        self.assertIn('Your budget', state['missing'])
         self.assertFalse(state['submitted'])
         self.assertIsNone(state['last_receipt'])
         code, result = self.post(self.url+'/submit', submission, fill=False)
