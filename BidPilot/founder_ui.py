@@ -329,7 +329,7 @@ function rail(){
  +'<h2>Test data <button class="link" data-act="showTest">'+(S.showTest?'Hide':'Show')+' ('+tests.length+')</button></h2>'+(S.showTest?tests.map(railCard).join(''):'')+'</nav>'}
 
 /* ---------- estimate ---------- */
-function figs(d){var e=d.est;return '<div class="figs"><div class="fig"><span>Hours needed</span><b>'+n2(e.need)+' h</b></div><div class="fig"><span>Free hours before '+lab(d.ask.by)+'</span><b>'+n2(e.free)+' h</b></div><div class="fig"><span>List price</span><b>'+money(e.list,1)+'</b></div><div class="fig"><span>Lowest you’d accept</span><b>'+money(e.lowest,1)+'<small>private</small></b></div></div>'}
+function figs(d){var e=d.est;return '<div class="figs"><div class="fig"><span>Hours needed</span><b>'+n2(e.need)+' h</b></div><div class="fig"><span>Free hours before '+lab(d.ask.by)+'</span><b>'+n2(e.free)+' h</b></div><div class="fig"><span>List price</span><b>'+money(e.list,1)+'</b></div><div class="fig"><span>Lowest you’d accept</span><b>'+money(e.lowest,1)+'</b></div></div>'}
 function need2bar(e){
  var sc=Math.max(e.need,e.free,0.0001),used=Math.min(e.need,e.free),short=e.need-e.free;
  var lbl=short>0.05?'<b class="over">'+n1(short)+' h short</b>':'<b style="color:var(--green)">'+n1(-short)+' h to spare</b>';

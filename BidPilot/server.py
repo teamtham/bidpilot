@@ -41,6 +41,15 @@ _quote_lock = threading.Lock()
 _quote_times = []
 
 
+OWNER_LINK_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Open your owner link</title>
+<style>body{margin:0;background:#f2f4f3;color:#17201d;font:15px/1.5 'Instrument Sans',system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px}
+main{background:#fff;border:1px solid #dde2df;border-radius:10px;padding:24px;max-width:460px}h1{font-size:20px;margin:0 0 8px}p{margin:0 0 8px;color:#5d6a65}</style></head>
+<body><main><h1>Open your owner link on this Mac</h1>
+<p>The founder dashboard only opens from your private owner link, the one that ends in <b>?owner=</b>.</p>
+<p>It is the last line starting with "BidPilot founder dashboard" in <b>~/hackathon/BidPilot/server.log</b>. Open it once in this browser and the dashboard will remember you.</p></main></body></html>"""
+
+
 def https_origin(value):
     if not re.fullmatch(r"https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?", value):
         raise ValueError("Expected an HTTPS origin with a hostname and optional port")
@@ -145,6 +154,14 @@ class Handler(BaseHTTPRequestHandler):
                        code=404)
 
     def forbidden(self, msg="Forbidden"):
+        # A browser opening an owner page on this Mac without the owner link
+        # gets a short plain page instead of raw JSON. The token is never
+        # shown; API callers and the public tunnel keep the JSON 403.
+        public = getattr(self, "server", None) and getattr(self.server, "public_origin", None)
+        on_public = bool(public) and self.headers.get("Host", "").lower() == urllib.parse.urlsplit(public).netloc
+        if (self.command == "GET" and not on_public and msg == "owner token required"
+                and "text/html" in (self.headers.get("Accept") or "")):
+            return self.send_html(OWNER_LINK_PAGE, code=403)
         self.send_json({"ok": False, "error": "forbidden", "detail": msg}, 403)
 
     def body(self):
