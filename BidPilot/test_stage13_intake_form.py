@@ -59,7 +59,7 @@ class IntakeFormTests(unittest.TestCase):
         for key in FIELDS:
             self.assertIn(f'name="{key}"', page)
         self.assertIn('Caption every deliverable', page)
-        self.assertIn('Use demo preset', page)
+        self.assertNotIn('demo preset', page)
         self.assertNotIn('direct_costs', page)
         self.assertEqual(self.request('GET', '/')[0], 403)
         self.assertEqual(self.request('GET', '/api/state')[0], 403)
