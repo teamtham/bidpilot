@@ -2783,20 +2783,10 @@ def founder_page(conn, api=None):
     import founder_ui
     fixtures = [{"source_id": sid, "label": label, "raw": raw, "offer_request": offer}
                 for sid, label, offer, raw in FIXTURES]
-    controls = '<span>QwenWork not connected</span> · <a href="/qwenwork/connect">Connect QwenWork</a>'
-    if api and api.connected():
-        rows = conn.execute("SELECT v.id,v.version_no,d.client FROM proposal_versions v JOIN deals d ON d.id=v.deal_id WHERE v.status IN ('draft','checked','blocked') AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=v.deal_id)").fetchall()
-        controls = '<span>QwenWork connected · founder approval still required</span>'
-        for row in rows:
-            job = conn.execute('SELECT status,error FROM qwenwork_sessions WHERE version_id=? OR result_version_id=? ORDER BY created_at DESC LIMIT 1', (row['id'], row['id'])).fetchone()
-            status = ('saved' if job['status'] == 'done' else job['status']) if job else 'ready'
-            controls += '<div>' + html.escape(row['client']) + ' · version ' + str(row['version_no']) + ' · ' + html.escape(status)
-            if job and job['error']:
-                controls += ' · ' + html.escape(job['error'])
-            controls += ' <button data-qwenwork-version="' + html.escape(row['id'], quote=True) + '">Draft with QwenWork</button></div>'
-        controls += '''<script>document.addEventListener('click',async e=>{const id=e.target.dataset.qwenworkVersion;if(!id)return;e.target.disabled=true;try{const r=await fetch('/api/qwenwork/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version_id:id})});const j=await r.json();if(!j.ok){alert(j.error);e.target.disabled=false;}else location.reload();}catch(_){e.target.disabled=false;}});</script>'''
-    # The /submitted-briefs page still exists; it is just not linked from the dashboard.
-    return founder_ui.page(SAMPLE_BADGE, fixtures).replace('<body>', '<body><nav style="padding:8px 24px">' + controls + '</nav>', 1)
+    # Nothing sits above the dashboard's top bar. QwenWork drafting still runs
+    # through /api/qwenwork/draft and its automatic triggers; connecting is at
+    # /qwenwork/connect. The /submitted-briefs page still exists, unlinked.
+    return founder_ui.page(SAMPLE_BADGE, fixtures)
 
 
 class StudioServer(ThreadingHTTPServer):
