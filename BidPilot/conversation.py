@@ -143,6 +143,9 @@ def _check_buyer_text(c, inquiry, text, allow_scoping_question=False):
     allowed=set(re.findall(r'\d[\d,]*(?:\.\d+)?',buyer))
     for i,word in enumerate(('zero','one','two','three','four','five','six','seven','eight','nine','ten')):
         if re.search(r'(?<!\w)'+word+r'(?!\w)',buyer): allowed.add(str(i))
+    # Count words buyers use instead of digits ("a single story" -> 1 edit).
+    for word,n in (('single','1'),('once','1'),('twice','2'),('double','2'),('both','2')):
+        if re.search(r'(?<!\w)'+word+r'(?!\w)',buyer): allowed.add(n)
     unknown=[n for n in re.findall(r'\d[\d,]*(?:\.\d+)?',normalized) if n not in allowed]
     if unknown:
         neutral=(allow_scoping_question and '?' in text and not re.search(r'(?:s\$|sgd|\$)\s*\d',normalized)
