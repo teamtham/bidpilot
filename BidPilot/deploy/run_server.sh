@@ -9,6 +9,8 @@ PY="${BIDPILOT_PYTHON:-/Library/Frameworks/Python.framework/Versions/3.13/bin/py
 ARGS=(-u -B server.py --port 8765
       --embed-origin "https://alex-studio.geo.hashmeta.tech,https://sh5gnpnc.qwenwork.page"
       --qwenwork-secret-file "$HOME/.bidpilot/qwenwork_callback_secret")
+# BIDPILOT_DB lets launchd run a different checkout against the one live database.
+[[ -n "${BIDPILOT_DB:-}" ]] && ARGS+=(--db "$BIDPILOT_DB")
 if [[ -s "$ORIGIN_FILE" ]]; then
   ARGS+=(--public-origin "$(tr -d '[:space:]' < "$ORIGIN_FILE")")
 fi

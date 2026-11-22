@@ -16,6 +16,7 @@ button{cursor:pointer}
 h1,h2,h3,h4,p{margin:0}
 .top{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
+.logo small{font-weight:500;font-size:12px;color:var(--mute);margin-left:2px}
 .logo i{width:22px;height:22px;background:url(data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27%231e9e5a%27%20d=%27M22%202%202%209.5l8.2%203.3L13.5%2021z%27/%3E%3Cpath%20fill=%27none%27%20stroke=%27%23fff%27%20stroke-width=%271.4%27%20stroke-linecap=%27round%27%20d=%27M22%202%2010.2%2012.8%27/%3E%3C/svg%3E) center/contain no-repeat;display:block}
 .tabs{display:flex;gap:4px}
 .tab{border:0;background:transparent;padding:7px 12px;border-radius:6px;color:var(--mute);font-weight:500}
@@ -616,7 +617,7 @@ function render(){
  try{if(fid){fs=fa.selectionStart;fe=fa.selectionEnd}}catch(x){}
  document.body.classList.toggle('split',S.tab==='deals');
  var tab=function(id,t){return '<button class="tab" data-act="tab" data-tab="'+id+'"'+(S.tab===id?' aria-current="page"':'')+'>'+t+'</button>'};
- var h='<header class="top"><span class="logo"><i></i>BidPilot</span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button></header>';
+ var h='<header class="top"><span class="logo"><i></i>BidPilot<small>for Alex Tan Productions</small></span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button></header>';
  var main=S.tab==='deals'?dealView(d):S.tab==='calendar'?calView():toolsView();
  h+='<div class="shell'+(S.tab==='deals'?' split':' wide')+'">'+(S.tab==='deals'?rail():'')+main+'</div>'+sheet()+(S.toast?'<div class="toast" role="status">'+esc(S.toast)+'</div>':'');
  document.getElementById('app').innerHTML=h;window.scrollTo(0,y);
