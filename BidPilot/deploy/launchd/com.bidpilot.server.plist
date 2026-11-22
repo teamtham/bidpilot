@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Installed by deploy/install_launchd.sh. The checkout to run is read from
+     ~/.bidpilot/app_dir at every start, so this file never names a folder. -->
 <plist version="1.0"><dict>
   <key>Label</key><string>com.bidpilot.server</string>
-  <key>WorkingDirectory</key><string>/Users/teamtham/idea/BidPilot</string>
   <key>ProgramArguments</key><array>
-    <string>/bin/bash</string><string>/Users/teamtham/idea/BidPilot/deploy/run_server.sh</string>
+    <string>/bin/bash</string><string>-c</string>
+    <string>exec /bin/bash "$(tr -d '\n' &lt; "$HOME/.bidpilot/app_dir")/deploy/run_server.sh"</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
-  <key>StandardOutPath</key><string>/Users/teamtham/.bidpilot/logs/server.log</string>
-  <key>StandardErrorPath</key><string>/Users/teamtham/.bidpilot/logs/server.log</string>
+  <key>StandardOutPath</key><string>__HOME__/.bidpilot/logs/server.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/.bidpilot/logs/server.log</string>
 </dict></plist>

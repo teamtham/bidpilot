@@ -24,13 +24,18 @@ class SeedSampleDealsTests(unittest.TestCase):
             seed.seed(conn)
             seed.seed(conn)                                    # idempotent
             deals = {d["client"]: d for d in server.state(conn)["deals"] if d.get("is_sample")}
-            self.assertEqual(len(deals), 9)
+            self.assertEqual(len(deals), 8)
             phases = {d["phase"] for d in deals.values()}
-            for expected in ("counter_ready", "ready_for_review", "needs_info", "needs_estimate",
+            for expected in ("counter_ready", "ready_for_review", "needs_estimate",
                              "sent", "booked", "rejected"):
                 self.assertIn(expected, phases)
             self.assertTrue(deals["Orchard Fitness"]["needs_fresh_estimate"])
             self.assertFalse(any(d["is_test"] for d in deals.values()))
+            self.assertNotIn("needs_info", phases)
+            seed.remove(conn, "bakery")                         # one sample only
+            left = {d["client"] for d in server.state(conn)["deals"] if d.get("is_sample")}
+            self.assertEqual(len(left), 7)
+            self.assertNotIn("Sample Bakery", left)
             seed.remove(conn)
             left = [r[0] for r in conn.execute("SELECT source_id FROM deals")]
             self.assertEqual(left, ["LEAD-REAL"])

@@ -16,6 +16,7 @@ button{cursor:pointer}
 h1,h2,h3,h4,p{margin:0}
 .top{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
+.logo small{font-weight:500;font-size:12px;color:var(--mute);margin-left:2px}
 .logo i{width:22px;height:22px;background:url(data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27%231e9e5a%27%20d=%27M22%202%202%209.5l8.2%203.3L13.5%2021z%27/%3E%3Cpath%20fill=%27none%27%20stroke=%27%23fff%27%20stroke-width=%271.4%27%20stroke-linecap=%27round%27%20d=%27M22%202%2010.2%2012.8%27/%3E%3C/svg%3E) center/contain no-repeat;display:block}
 .tabs{display:flex;gap:4px}
 .tab{border:0;background:transparent;padding:7px 12px;border-radius:6px;color:var(--mute);font-weight:500}
@@ -81,6 +82,15 @@ h1,h2,h3,h4,p{margin:0}
 .stale .btn.pri{background:var(--teal);color:var(--teal-ink)}
 .okline{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--green);background:var(--green-soft);border-radius:8px;padding:8px 12px}
 .said{background:var(--soft);border-radius:10px;padding:12px 16px}
+.chg table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
+.chg th,.chg td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.chg thead th{font-size:12px;color:var(--mute);font-weight:500}
+.chg td.was{color:var(--mute);text-decoration:line-through}.chg td.now{font-weight:600}
+.chg .figs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.chg .fig.delta b{color:var(--teal)}
+.rec{margin-top:12px;border-radius:8px;padding:10px 12px;background:var(--teal-soft);color:var(--ink);display:grid;gap:2px}
+.rec.counter{background:var(--amber-soft)}.rec.decline{background:var(--red-soft)}
+.rec b{font-size:14px}.rec span{font-size:13px}
 .said q{display:block;font-size:15px;quotes:none}
 .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 .opt{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:4px;margin-bottom:8px}
@@ -113,6 +123,14 @@ th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
 th{font-weight:600;color:var(--mute);font-size:12px}
 td.n,th.n{text-align:right}
 .miss{color:var(--red);font-weight:600}
+.brief11{width:100%;border-collapse:collapse}
+.brief11 th{text-align:left;width:34%;padding:6px 10px 6px 0;font-weight:600;color:var(--mute);vertical-align:top}
+.brief11 td{padding:6px 10px 6px 0;vertical-align:top;overflow-wrap:anywhere}
+.brief11 tr+tr th,.brief11 tr+tr td{border-top:1px solid var(--line)}
+.brief11 .src{text-align:right;white-space:nowrap;width:1%}
+.brief11 .chip.bad{background:var(--red-soft);color:var(--red)}
+.brief11 .was{color:var(--mute)}
+h4.more{font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 4px}
 .tl{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .tl li{display:grid;grid-template-columns:120px 1fr;gap:10px}.tl time{color:var(--mute);font-size:12px}
 .field{display:grid;gap:4px;font-size:13px;font-weight:600}
@@ -191,6 +209,14 @@ td.hi{background:var(--amber-soft);color:var(--amber);font-weight:600}
  .chart{gap:4px}
  .tl li{grid-template-columns:1fr}
 }
+@media (min-width:901px){
+ body.split{height:100vh;overflow:hidden;display:flex;flex-direction:column;margin-block:0}
+ body.split>*{flex:none}
+ body.split #app{flex:1;min-height:0;display:flex;flex-direction:column}
+ .shell.split{flex:1;min-height:0;padding-block:16px 0;align-items:stretch}
+ .shell.split .rail{position:static;max-height:none;height:100%;align-self:stretch;padding-bottom:24px;scrollbar-gutter:stable}
+ .shell.split>.main{height:100%;overflow:auto;padding:0 8px 40px 0;scrollbar-gutter:stable}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* live-page additions */
@@ -223,7 +249,7 @@ var FIELD={'offer.budget_sgd':'Budget','budget_sgd':'Budget','offer.deadline':'D
 var IC={"grid":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/></svg>","tag":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 12V4h8l10 10-8 8z\"/><circle cx=\"7.5\" cy=\"8.5\" r=\"1.2\"/></svg>","doc":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 3h8l4 4v14H6z\"/><path d=\"M14 3v4h4M9 12h6M9 16h6\"/></svg>","chat":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 5h16v11H9l-5 4z\"/></svg>","tool":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14 6a4 4 0 0 0 5 5l-9 9a2.1 2.1 0 0 1-3-3l9-9z\"/></svg>","list":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01\"/></svg>"};
 
 var ST=null,SNAP='';
-var S={tab:'deals',sub:null,deal:null,rail:false,notes:false,showTest:false,prev:null,hi:null,confirm:null,toast:'',open:{},win:0,pf:'all',sim:{},tick:{},drafts:{},check:{},qty:{},busy:false,more:{}};
+var S={tab:'deals',sub:null,deal:null,rail:false,notes:false,showTest:false,prev:null,hi:null,confirm:null,toast:'',open:{brief:true},win:0,pf:'all',sim:{},tick:{},drafts:{},check:{},qty:{},busy:false,more:{}};
 
 /* ---------- server ---------- */
 async function api(path,data){
@@ -255,7 +281,7 @@ function build(){
  var byClient={},c=0;JOBS=[];
  ((ST.capacity&&ST.capacity.jobs)||[]).forEach(function(j){var k=j.deal_id;if(!byClient[k]){byClient[k]={id:k,client:j.client,c:(c++%3)+1,h:{},deal:k};JOBS.push(byClient[k])}byClient[k].h[j.week]=(byClient[k].h[j.week]||0)+j.hours});
  ST.deals.forEach(function(raw){var d=model(raw);DEALS[d.id]=d;ORDER.push(d.id)});
- if(!S.deal||!DEALS[S.deal]){var first=ORDER.map(function(k){return DEALS[k]}).filter(function(d){return ['review','counter','info','estimate','nofit'].indexOf(d.phase)>-1})[0]||DEALS[ORDER[0]];S.deal=first?first.id:null}}
+ if(!S.deal||!DEALS[S.deal]){var first=ORDER.map(function(k){return DEALS[k]}).filter(function(d){return ['review','counter','estimate','nofit'].indexOf(d.phase)>-1})[0]||DEALS[ORDER[0]];S.deal=first?first.id:null}}
 function model(raw){
  var v=latest(raw),off=(raw.offers.length?raw.offers[raw.offers.length-1].offer:null)||{},d={raw:raw,v:v,id:raw.deal_id,client:raw.client};
  var kind=FMT[off.format]||(off.format?String(off.format).replace(/_/g,' '):'video');
@@ -268,7 +294,7 @@ function model(raw){
  else if(p==='counter_ready')d.phase='counter';
  else if(p==='ready_for_review')d.phase='review';
  else if(p==='draft_blocked'||p==='needs_fresh_estimate')d.phase=(v&&v.verdict==='counter')?'counter':'review';
- else if(p==='needs_info')d.phase=(raw.needs_information&&raw.needs_information.question_sent)?'qsent':'info';
+ else if(p==='needs_info')d.phase='incomplete';   // older briefs sent before every item was required
  else if(p==='no_fit')d.phase='nofit';
  else if(p==='needs_estimate'||p==='new')d.phase='estimate';
  else if(p==='sent'||p==='client_picked'||p==='change_requested')d.phase='sent';
@@ -306,19 +332,18 @@ function freeBefore(by){var t=0;weeksUpTo(by).forEach(function(w){t+=liveFree(w)
 function stat(d){switch(d.phase){
  case 'counter':return d.stale?['Needs fresh estimate','warn']:['Counter ready','warn'];
  case 'review':return d.stale?['Needs fresh estimate','warn']:(d.v&&d.v.outbound_status==='blocked'?['Draft blocked','bad']:['Ready for review','warn']);
- case 'info':return ['Needs info','warn'];case 'estimate':return ['Needs your estimate','warn'];case 'nofit':return ['Doesn’t fit','bad'];
- case 'qsent':return ['Waiting on client','info'];
+ case 'incomplete':return ['Incomplete brief',''];case 'estimate':return ['Needs your estimate','warn'];case 'nofit':return ['Doesn’t fit','bad'];
  case 'sent':return d.v&&d.v.accepted_at?['Client picked an option','warn']:['Waiting on client','info'];
  case 'booked':return ['Booked','ok'];case 'rejected':return ['Rejected',''];default:return ['Test data','']}}
 function headChip(d){
  if(d.phase==='counter'||d.phase==='review'){if(d.stale)return ['Needs a fresh estimate','warn'];return d.est&&d.est.fit?['Fits as asked','ok']:['Doesn’t fit as asked','bad']}
  return stat(d)}
-function railCard(d){var t=stat(d);return '<button class="card-deal'+(d.phase==='test'?' test':'')+'" data-act="open" data-id="'+d.id+'"'+(S.deal===d.id?' aria-current="true"':'')+'><b>'+esc(d.client)+(d.raw.is_sample?' <span class="chip info">Sample</span>':'')+'</b><span class="sub">'+esc(d.rcv)+' · '+esc(d.src)+'</span><span class="chip '+t[1]+'">'+t[0]+'</span></button>'}
+function railCard(d){var t=stat(d);return '<button class="card-deal'+(d.phase==='test'?' test':'')+'" data-act="open" data-id="'+d.id+'"'+(S.deal===d.id?' aria-current="true"':'')+'><b>'+esc(d.client)+'</b><span class="sub">'+esc(d.rcv)+' · '+esc(d.src)+'</span><span class="chip '+t[1]+'">'+t[0]+'</span></button>'}
 function rail(){
  var all=ORDER.map(function(k){return DEALS[k]});
  var real=all.filter(function(d){return d.phase!=='test'}),tests=all.filter(function(d){return d.phase==='test'});
- var need=real.filter(function(d){return ['review','counter','info','estimate','nofit'].indexOf(d.phase)>-1});
- var prog=real.filter(function(d){return ['sent','booked','qsent'].indexOf(d.phase)>-1});
+ var need=real.filter(function(d){return ['review','counter','incomplete','estimate','nofit'].indexOf(d.phase)>-1});
+ var prog=real.filter(function(d){return ['sent','booked'].indexOf(d.phase)>-1});
  var closed=real.filter(function(d){return d.phase==='rejected'});
  var w=WEEKS[weekIdx()],f=w?liveFree(w):0,c=w?w.budget_hours:0,pct=c?Math.min(100,Math.max(0,(c-f)/c*100)):0;
  return '<nav class="rail'+(S.rail?' open':'')+'" aria-label="Deals">'
@@ -432,7 +457,52 @@ function draftPanel(d){
  return '<section class="panel"><h3><span>'+(d.phase==='info'?'Question for the client':'Draft message')+'</span><span class="note" style="font-weight:400">Click to edit</span></h3><textarea id="draft" aria-label="Draft message">'+esc(draftText(d))+'</textarea>'
  +'<div id="checkpanel">'+checks(d)+'</div></section>'}
 function coll(key,title,body){var o=S.open[key];return '<div class="col"><button data-act="toggle" data-key="'+key+'" aria-expanded="'+(!!o)+'"><span>'+title+'</span><span>'+(o?'−':'+')+'</span></button>'+(o?'<div class="body">'+body+'</div>':'')+'</div>'}
-function briefHtml(d){return '<table><tbody>'+d.brief.map(function(r){return '<tr><th scope="row">'+r[0]+'</th><td>'+(r[1]==null?'<span class="miss">Missing</span>':esc(r[1]))+'</td></tr>'}).join('')+'</tbody></table>'}
+/* The 11 brief items, in the order the client chat shows them. Chat facts are
+   matched with the chat's own patterns (conversation.BRIEF_FIELDS). */
+var BRIEF=__BRIEF_FIELDS__.map(function(f,i){return [f[0],new RegExp(f[1]),['format','production_mode','shoot_days','locations','deliverables','caption_versions','scripting','revision_rounds','deadline','editing_level','budget_sgd'][i]]});
+var PLAIN={production_mode:{edit_only:'Edit only, from their footage',on_location:'On location',one_shoot_day:'One shoot day',multi_day:'Several shoot days'},
+ scripting:{none:'No scripting',light:'Light scripting',full:'Full scripting'},
+ editing_level:{simple:'Simple edit',standard:'Standard edit',premium:'Premium edit',advanced:'Advanced edit'}};
+function words(x){x=String(x).replace(/^production\./,'').replace(/[_.-]+/g,' ').trim();return x.charAt(0).toUpperCase()+x.slice(1)}
+function factText(v,item){
+ if(v===null||v===undefined||v==='')return '';
+ if(typeof v==='boolean')return v?'Yes':'No';
+ if(Array.isArray(v))return v.map(function(x){return factText(x)}).join(', ');
+ if(typeof v==='object')return Object.keys(v).map(function(k){return words(k)+': '+factText(v[k])}).join('; ');
+ if(typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v))return lab(v);
+ if(item==='Your budget'&&(typeof v==='number'||/^[\d,.\s]+$/.test(String(v))))return 'About S$'+String(typeof v==='number'?v.toLocaleString('en-SG'):v).trim();
+ v=String(v);return v.charAt(0).toUpperCase()+v.slice(1)}
+function offerText(k,v){
+ if(v===null||v===undefined||v==='')return null;
+ if(k==='format')return FMTCHIP[v]||words(v);
+ if(PLAIN[k])return PLAIN[k][v]||words(v);
+ if(k==='shoot_days')return v===0?'No shoot days':v+' shoot day'+(v===1?'':'s');
+ if(k==='locations')return v===0?'No locations':v+' location'+(v===1?'':'s');
+ if(k==='revision_rounds')return v+' round'+(v===1?'':'s');
+ if(k==='deadline')return lab(v);
+ if(k==='budget_sgd')return 'About '+money(v);
+ return String(v)}
+function briefModel(d){
+ var off=(d.raw.offers.length?d.raw.offers[d.raw.offers.length-1].offer:null)||{},used={};
+ /* deadline_kind only says which kind of date was asked about; the date itself is its own fact */
+ var facts=(d.raw.brief_facts||[]).filter(function(x){return !/deadline_kind/.test(x.subject)});
+ var ch={},v=d.v;((v&&v.comparison&&v.comparison.changed_fields)||[]).forEach(function(f){ch[f.field]=f.old});
+ var missing=(d.missing||[]).map(function(x){return x==='Budget'?'Your budget':x});
+ var rows=BRIEF.map(function(b){
+  var f=null;facts.forEach(function(x){if(!f&&!used[x.subject]&&b[1].test(x.subject)){f=x;used[x.subject]=1}});
+  var text=f?(f.status==='excluded'?'Not needed':factText(f.value,b[0])):null;
+  if(!text)text=missing.indexOf(b[0])>-1?null:offerText(b[2],off[b[2]]);
+  var was=ch[b[2]]!=null?offerText(b[2],ch[b[2]]):null;
+  return {label:b[0],text:text||null,was:was}});
+ var more=facts.filter(function(x){return !used[x.subject]}).map(function(x){return {label:words(x.subject),text:x.status==='excluded'?'Not needed':factText(x.value)}}).filter(function(r){return r.text});
+ return {rows:rows,more:more}}
+function briefHtml(d){
+ var m=briefModel(d),n=m.rows.filter(function(r){return r.text}).length;
+ var h='<p class="note">'+n+' of 11 given.</p><div class="tw"><table class="brief11"><tbody>'
+ +m.rows.map(function(r){var miss=!r.text;
+  return '<tr><th scope="row">'+r.label+'</th><td>'+(miss?'<span class="miss">Not given yet</span>':esc(r.text)+(r.was?' <span class="was">(was '+esc(r.was)+')</span>':''))+'</td><td class="src">'+(miss?'<span class="chip bad">Ask them</span>':'')+'</td></tr>'}).join('')+'</tbody></table></div>';
+ if(m.more.length)h+='<h4 class="more">Other details</h4><div class="tw"><table class="brief11"><tbody>'+m.more.map(function(r){return '<tr><th scope="row">'+esc(r.label)+'</th><td colspan="2">'+esc(r.text)+'</td></tr>'}).join('')+'</tbody></table></div>';
+ return h}
 var STEP={claimed:'Brief received',resume:'Brief received again',intake:'Intake saved',scoping:'Similar past jobs picked',engine:'Estimate made',engine_evaluate:'Estimate made',reevaluate:'Estimate re-run',draft:'Draft written',edit_draft:'You edited the draft',outbound:'Draft checked',outbound_check:'Draft checked',review:'Waiting for your review',approve:'Proposal sent',reject:'You rejected this',client_change:'Client asked for a change',client_accept:'Client picked an option',capacity_revalidate:'Calendar re-checked',rotate_token:'Client link reissued',confirm_booking:'You confirmed the booking',close_deal:'Deal closed',needs_information:'Checked what was missing',stale_version:'Change was for an older version',error:'Something went wrong',chat:'Buyer chat answered',reference:'Reference video watched',compose:'Proposal page composed'};
 function stepLine(s){
  var t=STEP[s.step_key]||String(s.step_key).replace(/_/g,' '),n='';
@@ -450,7 +520,7 @@ function histHtml(d){
  var total=d.raw.steps_total||steps.length;
  var more=total>show.length?'<p class="note">Showing the latest '+show.length+' of '+total+' steps. Repeated checks that found nothing new are no longer logged. <button class="link" data-act="more">Show earlier</button></p>':'';
  return '<ul class="tl">'+rows+'</ul>'+more}
-function head(d){var c=headChip(d);return '<div class="head"><div><h1>'+esc(d.title)+(d.raw.is_sample?' <span class="chip info" style="vertical-align:middle">Sample</span>':'')+'</h1><p class="meta">'+esc(d.src)+' · received '+esc(d.rcv)+'</p></div><span class="chip '+c[1]+'">'+c[0]+'</span></div>'}
+function head(d){var c=headChip(d);return '<div class="head"><div><h1>'+esc(d.title)+'</h1><p class="meta">'+esc(d.src)+' · received '+esc(d.rcv)+'</p></div><span class="chip '+c[1]+'">'+c[0]+'</span></div>'}
 function approvalAt(d,action){var a=(d.raw.approvals||[]).filter(function(x){return x.action===action});return a.length?when(a[a.length-1].decided_at):''}
 function sentCard(d){
  var v=d.v,url=v&&v.client_url?location.origin+v.client_url:'';
@@ -493,18 +563,43 @@ function estimateForm(d){
 function readTotals(d){var h=0,p=0,q=S.qty[d.id]||{};(ST.price_list||[]).forEach(function(r){var el=document.getElementById('q-'+r.id),n=el?(parseFloat(el.value)||0):(q[r.id]||0);h+=n*r.hours;p+=n*r.price_sgd});return {h:h,p:p}}
 function totalsHtml(t){return 'Total: <b>'+n1(t.h)+' h</b> and <b>'+money(t.p)+'</b>'}
 
+function priorVersion(d){var c=d.v&&d.v.comparison;if(!c||!c.prior_offer_id)return null;var vs=d.raw.versions.filter(function(x){return x.offer_id===c.prior_offer_id});return vs.length?vs[vs.length-1]:null}
+function priorPrice(d){var pv=priorVersion(d);if(!pv)return null;var opts=pv.options||[],pick=null;
+ var acc=pv.accepted_option&&pv.accepted_option.terms;if(acc)pick=acc;
+ if(!pick&&pv.selected_option_id)pick=opts.filter(function(o){return o.option_id===pv.selected_option_id})[0];
+ if(!pick&&pv.offered_option_ids&&pv.offered_option_ids.length){var m={};(pv.option_meta||[]).forEach(function(x){m[x.option_row_id]=x.option_id});pick=opts.filter(function(o){return pv.offered_option_ids.some(function(id){return m[id]===o.option_id})})[0]}
+ if(!pick)pick=opts[0];return pick?{no:pv.version_no,price:pick.price_sgd}:null}
+var CHG_FIELD={deliverables:'Videos',caption_versions:'Captioned versions',deadline:'Deadline',budget_sgd:'Their budget'};
+function changePanel(d){
+ var v=d.v,c=v&&v.comparison;if(!c||!c.is_revision||!v.verdict||['review','counter','nofit'].indexOf(d.phase)<0)return '';
+ function fmt(f,x){if(x==null||x==='')return 'not given';if(f==='deadline')return lab(x);if(/_sgd$/.test(f))return money(x);return String(x).replace(/_/g,' ')}
+ var rows=(c.changed_fields||[]).map(function(f){return '<tr><th scope="row">'+esc(CHG_FIELD[f.field]||words(f.field))+'</th><td class="was">'+esc(fmt(f.field,f.old))+'</td><td class="now">'+esc(fmt(f.field,f.new))+'</td></tr>'}).join('');
+ var prior=priorPrice(d),was=prior?'version '+prior.no:'the current proposal',e=v.estimate||{},total=null,cls='',title,why,note='';
+ var full=d.opts.filter(function(o){return o.key==='hold_scope'})[0]||d.opts.filter(function(o){return o.key==='as_offered'})[0];
+ if(v.verdict==='accept'||v.verdict==='accept_with_approval'){total=d.opts.length?d.opts[0].price:e.list_sgd;title='Accept the change at '+money(total);
+  why=v.verdict==='accept'?'It fits your calendar and their budget covers it.':'It fits your calendar. Their budget is under your list price but above your minimum, so it’s your call.';note='Price for the change as the client asked.'}
+ else if(v.verdict==='counter'){cls=' counter';total=full?full.price:e.list_sgd;title='Send counter options';
+  why='The change doesn’t fit as asked. Each option below keeps one of the client’s wishes. Untick any you don’t want to offer.';note=full?'Full change on a date that fits ('+full.name+').':'List price for the change as asked.'}
+ else if(v.verdict==='decline'){cls=' decline';title='Decline the change and keep '+was+' open';why='No option fits your calendar and their budget. The current proposal still stands for the client to accept.';note='No price works for this change.'}
+ else{title='This change needs your own estimate';why='The engine couldn’t price it with your current rules.'}
+ var delta=(total!=null&&prior)?total-prior.price:null;
+ var figs='<div class="figs">'+(prior?'<div class="fig"><span>Client pays now ('+esc(was)+')</span><b>'+money(prior.price)+'</b></div>':'')
+  +'<div class="fig"><span>Suggested new total</span><b>'+(total!=null?money(total):'—')+'</b></div>'
+  +(delta!=null?'<div class="fig delta"><span>The change costs</span><b>'+(delta>=0?'+':'−')+money(Math.abs(delta))+'</b></div>':'')+'</div>';
+ return '<section class="panel chg"><h3><span>What changed since '+esc(was)+'</span></h3>'+(rows?'<table><thead><tr><th>Item</th><th>Was</th><th>Now</th></tr></thead><tbody>'+rows+'</tbody></table>':'')
+  +figs+'<p class="note">'+esc(note)+'</p><div class="rec'+cls+'"><b>Suggested: '+esc(title)+'</b><span>'+esc(why)+'</span><span class="note">The engine only suggests. You decide below.</span></div></section>'}
 function dealView(d){
  if(!d)return '<div class="main"><section class="panel"><h3>No deals yet</h3><p>New Hashmeta inquiries appear here after QwenWork claims them.</p></section></div>';
  var h='<div class="main">'+head(d);
  if(d.phase==='test')return h+'<section class="panel"><h3>Test data</h3><p>This deal comes from an evaluation run. It is kept out of your queue and your calendar.</p><div class="row"><button class="btn" data-act="showTest">Hide test data</button></div></section></div>';
  if(d.phase==='booked')return h+'<section class="sent" style="background:var(--green-soft)"><b>Booked</b><span>You confirmed this on '+esc(approvalAt(d,'confirm_booking'))+'. The hours are set aside on your calendar.</span>'+(d.v&&d.v.accepted_option&&d.v.accepted_option.terms?'<span>Client accepted: '+esc(optLabel(d.v.accepted_option.terms))+'.</span>':'')+'<div class="row" style="margin-top:4px"><button class="btn" data-act="tab" data-tab="calendar">Open on the calendar</button></div></section>'+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='rejected')return h+'<section class="panel"><h3>Rejected</h3><p>You rejected this on '+esc(approvalAt(d,'reject')||d.rcv)+'. Nothing was sent to the client. It stays here for history and no longer counts in your queue.</p></section>'+coll('hist','History',histHtml(d))+'</div>';
- if(d.phase==='info')return h+'<section class="panel"><h3>I need a bit more before I can price this</h3><p>Missing: <b class="miss">'+esc((d.missing||[]).join(' and ')||'details not recorded')+'</b>.</p><div style="margin-top:10px">'+briefHtml(d)+'</div></section><div class="cols">'+draftPanel(d)+simPanel(d)+'</div>'+coll('hist','History',histHtml(d))+'</div>';
- if(d.phase==='qsent')return h+'<section class="sent"><b>Question sent to '+esc(d.client)+'</b><span>It comes back to your queue when they reply with their '+esc((d.missing||[]).join(' and ').toLowerCase()||'details')+'.</span></section>'+coll('hist','History',histHtml(d))+'</div>';
+ if(d.phase==='incomplete')return h+'<section class="panel"><h3>Incomplete brief</h3><p>This brief came in before the chat and the form required every item, so some items were never given. Nothing has been sent to the client.</p></section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='estimate'){var form=estimateForm(d);return h+whyLine(whyUnpriced(d))+liveEstimatePanel(d)+form+simPanel(d)+coll('brief','Brief',briefHtml(d))+'</div>'}
- if(d.phase==='nofit')return h+whyLine('I estimated this, but no option fits your calendar or your prices before '+(d.ask?lab(d.ask.by):'the deadline')+'.')+(d.est?estimatePanel(d):'')+'<section class="panel"><h3>Nothing fits as asked</h3><p>Free up time on the calendar or change the brief, then re-run the estimate. Or reject the deal; nothing is sent to the client.</p><div class="row"><button class="btn pri" data-act="rerun">Re-run the estimate</button><button class="btn" data-act="tab" data-tab="calendar">Open the calendar</button><button class="btn danger" data-act="reject">Reject</button></div>'+(S.confirm&&S.confirm.deal===d.id?'<div class="confirm"><b>Reject this deal?</b><p class="note" style="margin:4px 0 8px">Nothing is sent to the client. The deal moves to Closed and keeps its history.</p><div class="row" style="margin-top:0"><button class="btn pri" data-act="doReject">Yes, reject</button><button class="btn" data-act="cancel">Cancel</button></div></div>':'')+'</section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
+ if(d.phase==='nofit')return h+whyLine('I estimated this, but no option fits your calendar or your prices before '+(d.ask?lab(d.ask.by):'the deadline')+'.')+changePanel(d)+(d.est?estimatePanel(d):'')+'<section class="panel"><h3>Nothing fits as asked</h3><p>Free up time on the calendar or change the brief, then re-run the estimate. Or reject the deal; nothing is sent to the client.</p><div class="row"><button class="btn pri" data-act="rerun">Re-run the estimate</button><button class="btn" data-act="tab" data-tab="calendar">Open the calendar</button><button class="btn danger" data-act="reject">Reject</button></div>'+(S.confirm&&S.confirm.deal===d.id?'<div class="confirm"><b>Reject this deal?</b><p class="note" style="margin:4px 0 8px">Nothing is sent to the client. The deal moves to Closed and keeps its history.</p><div class="row" style="margin-top:0"><button class="btn pri" data-act="doReject">Yes, reject</button><button class="btn" data-act="cancel">Cancel</button></div></div>':'')+'</section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='sent')h+=sentCard(d);
  if(d.said)h+='<section class="said"><span class="note">Client said</span><q>“'+esc(d.said)+'”</q><span class="note">Client text. Treated as a request, not an approval.</span></section>';
+ if(d.phase!=='sent')h+=changePanel(d);
  if(d.phase==='sent')return h+(d.est?estimatePanel(d):'')+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  h+=d.stale?staleBlock(d):'<div class="okline"><span>✓</span><span>Calendar checked. Nothing has changed since this estimate. <button class="link" data-act="tab" data-tab="calendar">Open the calendar</button></span></div>';
  if(d.est)h+=estimatePanel(d);
@@ -571,7 +666,7 @@ function toolsView(){
  if(S.sub==='log')return logView();
  var G=[['Your work',[['portfolio','grid','Portfolio library','The work you show clients. Filter by format, see what buyers can view.','Restyled'],['rates','tag','Production estimates','Your price list: hours and price for each kind of work. Custom jobs are built from it.','Restyled']]],
   ['Clients',[['proposals','doc','Proposals and amendments','Every proposal sent, what the client picked, and change requests.','Unchanged'],['inquiry','chat','Buyer inquiry','The client chat and brief card, as clients see it.','Unchanged']]],
-  ['System',[['demo','tool','Demo tools','Reset sample data, inbox and capacity tables. Moved off every deal view.','Moved here'],['log','list','Run log','Every agent step with the latest first, for when you need the detail.','New']]]];
+  ['System',[['log','list','Run log','Every agent step with the latest first, for when you need the detail.','New']]]];
  return '<div class="main"><div class="head"><div><h1>Studio tools</h1><p class="meta">Everything that is not a deal or the calendar.</p></div></div>'+G.map(function(g){return '<section class="tgroup"><h2>'+g[0]+'</h2><div class="tgrid">'+g[1].map(function(t){return '<button class="tool" data-act="tool" data-tool="'+t[0]+'"><span class="ico">'+IC[t[1]]+'</span><b>'+t[2]+'</b><span class="ds">'+t[3]+'</span><span class="ft"><span class="chip'+(t[4]==='Unchanged'?'':' info')+'">'+t[4]+'</span><span class="go">Open ›</span></span></button>'}).join('')+'</div></section>'}).join('')+'</div>'}
 function crumb(t){return '<div class="crumb"><button class="link" data-act="tab" data-tab="tools">Studio tools</button> › '+t+'</div>'}
 function ratesView(){
@@ -598,20 +693,25 @@ function logView(){
  var all=[];ORDER.forEach(function(k){var d=DEALS[k];d.raw.steps.forEach(function(s){all.push({d:d,s:s})})});
  all.sort(function(a,b){return (b.s.finished_at||b.s.started_at||0)-(a.s.finished_at||a.s.started_at||0)});
  return '<div class="main">'+crumb('Run log')+'<div class="head"><div><h1>Run log</h1><p class="meta">Every agent step, latest first.</p></div></div><section class="panel"><ul class="tl">'+all.slice(0,200).map(function(x){var l=stepLine(x.s);return '<li><time>'+esc(l[0])+'</time><span><b>'+esc(x.d.client)+': '+esc(l[1])+'</b>'+(l[2]?'<br><span class="note">'+esc(l[2])+'</span>':'')+'</span></li>'}).join('')+'</ul></section></div>'}
-function notesPanel(){
- return '<aside class="sheet notes" role="dialog" aria-label="What is new in this design"><div class="head"><h2 style="font-size:18px;font-weight:600">What’s new in this design</h2><button class="btn sm" data-act="notes">Close</button></div>'
- +'<h3>Fixes from the audit</h3><ul><li><b>Stale estimate.</b> A deal whose calendar changed shows what changed, which proposal it affects and whether the date still works. Re-run the estimate, and Approve stays locked until you do.</li><li><b>No edit or check buttons.</b> The draft is always editable. The checks run when you press Approve and send, and tell you exactly what to take out.</li><li><b>Go to page and Copy link</b> appear as soon as the proposal page is ready.</li><li><b>Plain refusals.</b> Locked buttons say why in a sentence, never a code.</li><li><b>Honest status.</b> Booked and rejected deals no longer show warnings.</li><li><b>Needs-info deals</b> list exactly what is missing.</li><li><b>Custom jobs</b> are built from your price list in Studio tools, Production estimates.</li><li><b>Similar work</b> appears on every proposal before it goes out. Questions to the client and unpriced jobs say why it is not there yet.</li><li><b>One set of option names</b> everywhere. Duplicates are merged.</li><li><b>Queue.</b> Test data is tucked away, and every card has a date.</li><li><b>History</b> is capped, with no field names or skill names. Demo tools moved to Studio tools.</li><li><b>Studio tools</b> is a proper hub: grouped cards with icons, Portfolio library and Production estimates.</li><li><b>Phone.</b> The deals list becomes a menu.</li><li><b>Accessibility.</b> A real page heading, current-deal marking, and nothing under 12px.</li></ul><h3>New: the studio calendar</h3><ul><li>One bar per week, labelled with the week, the jobs and the hours free.</li><li><b>Preview on calendar</b> beside every option. It changes nothing.</li><li>Working hours, plus blocks for leave, admin or outside work.</li><li>Change anything and every affected proposal flags itself. Try blocking a week.</li></ul><h3>Not in this version</h3><ul><li>Google Calendar sync, and day-level time slots.</li></ul></aside>'}
 function proposalSheet(){return ''}
 
 /* ---------- render ---------- */
 function render(){
  if(!ST){document.getElementById('app').innerHTML='<p class="note" style="padding:20px 0">Loading deals…</p>';return}
- var y=window.scrollY,d=DEALS[S.deal];
+ var y=window.scrollY,d=DEALS[S.deal],rl=document.querySelector('.rail'),mn=document.querySelector('.shell.split>.main'),rs=rl?rl.scrollTop:0,ms=mn?mn.scrollTop:0;
+ if(S.resetMain){ms=0;S.resetMain=false}
+ var fa=document.activeElement,fid=fa&&fa.id&&fa.matches&&fa.matches('textarea,input,select')?fa.id:null,fs=null,fe=null;
+ try{if(fid){fs=fa.selectionStart;fe=fa.selectionEnd}}catch(x){}
+ document.body.classList.toggle('split',S.tab==='deals');
  var tab=function(id,t){return '<button class="tab" data-act="tab" data-tab="'+id+'"'+(S.tab===id?' aria-current="page"':'')+'>'+t+'</button>'};
- var h='<header class="top"><span class="logo"><i></i>BidPilot</span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button><button class="btn sm" data-act="notes">What’s new</button></header>';
+ var h='<header class="top"><span class="logo"><i></i>BidPilot<small>for Alex Tan Productions</small></span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button></header>';
  var main=S.tab==='deals'?dealView(d):S.tab==='calendar'?calView():toolsView();
- h+='<div class="shell'+(S.tab==='deals'?'':' wide')+'">'+(S.tab==='deals'?rail():'')+main+'</div>'+sheet()+(S.notes?notesPanel():'')+(S.toast?'<div class="toast" role="status">'+esc(S.toast)+'</div>':'');
- document.getElementById('app').innerHTML=h;window.scrollTo(0,y)}
+ h+='<div class="shell'+(S.tab==='deals'?' split':' wide')+'">'+(S.tab==='deals'?rail():'')+main+'</div>'+sheet()+(S.toast?'<div class="toast" role="status">'+esc(S.toast)+'</div>':'');
+ document.getElementById('app').innerHTML=h;window.scrollTo(0,y);
+ rl=document.querySelector('.rail');mn=document.querySelector('.shell.split>.main');if(rl)rl.scrollTop=rs;if(mn)mn.scrollTop=ms;
+ if(fid){var nf=document.getElementById(fid);if(nf){try{nf.focus({preventScroll:true});if(fs!=null)nf.setSelectionRange(fs,fe)}catch(x){}}}
+ var cd=rl&&rl.querySelector('.card-deal[aria-current]');if(cd&&S.revealRail){cd.scrollIntoView({block:'nearest'});S.revealRail=false}}
+function topPane(){var m=document.querySelector('.shell.split>.main');if(m)m.scrollTop=0;else window.scrollTo(0,0)}
 function say(t){S.toast=t;render();clearTimeout(say.t);say.t=setTimeout(function(){S.toast='';render()},3600)}
 function go(h){if(location.hash==='#'+h)parse();else location.hash=h}
 function parse(){var h=location.hash.slice(1);
@@ -621,7 +721,7 @@ function parse(){var h=location.hash.slice(1);
  else if(h==='run-log'){S.tab='tools';S.sub='log'}
  else if(h==='calendar'||h==='tools'){S.tab=h;S.sub=null}
  else{S.tab='deals';if(h.indexOf('deal-')===0)S.deal=h.slice(5)}
- S.rail=false;S.prev=null;S.confirm=null;S.notes=false;render();if(S.tab==='deals')window.scrollTo(0,0)}
+ S.rail=false;S.prev=null;S.confirm=null;S.notes=false;S.resetMain=true;S.revealRail=true;render();if(S.tab!=='deals'||window.matchMedia('(max-width:900px)').matches)window.scrollTo(0,0)}
 window.addEventListener('hashchange',parse);
 
 /* ---------- actions ---------- */
@@ -643,7 +743,7 @@ async function doApprove(d){
  var cf=S.confirm;S.busy=true;render();
  var r=await api('/api/approve',{version_id:cf.vid,option_ids:cf.ids.length===d.opts.length?undefined:cf.ids});
  S.busy=false;S.confirm=null;delete S.check[d.id];
- await refreshState(false);window.scrollTo(0,0);
+ await refreshState(false);topPane();
  say(r.ok?'Proposal page created.':'Not sent. '+(r.message||'Approve was refused.'))}
 document.addEventListener('click',async function(e){
  var b=e.target.closest('[data-act]');if(!b)return;var a=b.dataset.act,d=cur(),v,r;
@@ -651,7 +751,6 @@ document.addEventListener('click',async function(e){
   case 'tab':S.sub=null;if(b.dataset.tab!=='calendar')S.hi=null;go(b.dataset.tab==='deals'?'deal-'+S.deal:b.dataset.tab);break;
   case 'open':S.hi=null;go('deal-'+b.dataset.id);break;
   case 'rail':S.rail=!S.rail;render();break;
-  case 'notes':S.notes=!S.notes;render();break;
   case 'showTest':S.showTest=!S.showTest;render();break;
   case 'toggle':S.open[b.dataset.key]=!S.open[b.dataset.key];render();break;
   case 'more':S.more[d.id]=true;render();break;
@@ -670,7 +769,7 @@ document.addEventListener('click',async function(e){
   case 'doApprove':
    if(d.phase==='info'){S.busy=true;r=await api('/api/send-question',{deal_id:d.id,question:draftText(d)});S.busy=false;S.confirm=null;delete S.drafts[d.id];await refreshState(false);say(r.ok?'Question sent to '+d.client+'. It will return to your queue when they reply.':(r.message||'The question was not sent.'));break}
    doApprove(d);break;
-  case 'doReject':S.busy=true;r=await api('/api/reject',{version_id:d.v.version_id});S.busy=false;S.confirm=null;await refreshState(false);window.scrollTo(0,0);say(r.ok?'Rejected. Nothing was sent to the client.':(r.message||'Reject was refused.'));break;
+  case 'doReject':S.busy=true;r=await api('/api/reject',{version_id:d.v.version_id});S.busy=false;S.confirm=null;await refreshState(false);topPane();say(r.ok?'Rejected. Nothing was sent to the client.':(r.message||'Reject was refused.'));break;
   case 'copy':v=location.origin+d.v.client_url;try{navigator.clipboard.writeText(v).then(function(){say('Link copied.')},function(){say('Copy blocked here. Select the link above.')})}catch(x){say('Copy blocked here. Select the link above.')}break;
   case 'page':window.open(d.v.client_url,'_blank','noopener');break;
   case 'confirmBooking':S.busy=true;r=await api('/api/confirm-booking',{version_id:d.v.version_id});S.busy=false;await refreshState(false);say(r.ok?'Booking confirmed. The hours are set aside on your calendar.':(r.message||'Confirm was refused.'));break;
@@ -686,7 +785,7 @@ document.addEventListener('click',async function(e){
   case 'runEst':
    var t=readTotals(d);if(!(t.h>0)||!(t.p>0)){say('Add at least one item from your price list.');break}
    v=(ST.price_list||[]).map(function(x){var el=document.getElementById('q-'+x.id);return {id:x.id,qty:el?(parseFloat(el.value)||0):0}}).filter(function(x){return x.qty>0});
-   S.busy=true;render();r=await api('/api/price-list-estimate',{deal_id:d.id,items:v});S.busy=false;await refreshState(false);window.scrollTo(0,0);
+   S.busy=true;render();r=await api('/api/price-list-estimate',{deal_id:d.id,items:v});S.busy=false;await refreshState(false);topPane();
    say(r.ok?'Estimate done from your price list. A draft is ready.':(r.message||'The estimate could not be made.'));break;
   case 'win':v=parseInt(b.dataset.d,10);S.win=v===0?0:S.win+v;render();break;
   case 'saveHrs':v=parseFloat(document.getElementById('hrs').value);if(!(v>0)||v>80){say('Enter hours between 1 and 80.');break}
@@ -717,6 +816,8 @@ schedulePolling();
 
 def page(badge, fixtures):
     fixtures_json = json.dumps(fixtures).replace("</", "<\\/")
+    import conversation
+    js = JS.replace("__BRIEF_FIELDS__", json.dumps([[n, p] for n, p in conversation.BRIEF_FIELDS]))
     return ('<!doctype html><html lang="en" data-theme="light" style="color-scheme:light"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light">'
             '<title>BidPilot founder dashboard</title>'
@@ -727,4 +828,4 @@ def page(badge, fixtures):
             '<div id="app"><p>Loading deals…</p></div>'
             '<noscript>BidPilot needs JavaScript.</noscript>'
             '<script>const FIXTURES = ' + fixtures_json + ';\n</script>'
-            '<script>' + JS + '</script></body></html>')
+            '<script>' + js + '</script></body></html>')
