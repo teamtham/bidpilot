@@ -136,12 +136,11 @@ class ConversationTests(unittest.TestCase):
                         '-f','lavfi','-i','sine=frequency=440:duration=3',
                         '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-shortest',str(clip)],
                        capture_output=True,timeout=60,check=True)
-        os.environ['BIDPILOT_WHISPER_CLI']=whisper; os.environ['BIDPILOT_WHISPER_MODEL']=model
-        try:
+        from unittest.mock import patch
+        # Restore whatever was set before, so later tests still see a configured adapter.
+        with patch.dict(os.environ,{'BIDPILOT_WHISPER_CLI':whisper,'BIDPILOT_WHISPER_MODEL':model}):
             asset=chat.upload(self.c,self.i,{'filename':'tone.mp4','mime':'video/mp4','data':base64.b64encode(clip.read_bytes()).decode()})
             chat.process_media_once(self.path)
-        finally:
-            os.environ.pop('BIDPILOT_WHISPER_CLI',None); os.environ.pop('BIDPILOT_WHISPER_MODEL',None)
         result=chat.evidence(self.c,{'analysis_id':asset['analysis_id']})
         self.assertEqual(result['status'],'done',result)
         self.assertEqual(result['result']['transcription']['status'],'complete',result['result'])
