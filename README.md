@@ -6,7 +6,7 @@ against real capacity, cost floors and private data — so the business only pro
 actually deliver.
 
 This is a hackathon entry for **QwenWork x Hashmeta AI OPC**, shown with a sample video producer
-("Alex Studio") and synthetic data only. Every figure comes from the engine's pinned sample cases
+("Alex Tan Productions") and synthetic data only. Every figure comes from the engine's pinned sample cases
 and is verified by the test suite.
 
 > **Demo status (verified reality).** The capacity/calendar figures are **sample seed data**, not a

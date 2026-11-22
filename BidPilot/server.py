@@ -32,6 +32,7 @@ import conversation
 import estimating
 import portfolio
 import qwenwork_callback
+import qwenwork_api
 from studio_modules import modules
 import db
 
@@ -234,6 +235,25 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+            if path == '/qwenwork/callback':
+                try:
+                    self.server.qwenwork_api.finish_login(self.query())
+                    return self.send_html('<h1>QwenWork connected, you can close this tab</h1>')
+                except qwenwork_api.APIError as exc:
+                    return self.send_html('<h1>QwenWork connection failed</h1><p>' + html.escape(str(exc)) + '</p>', 400)
+            if path == '/qwenwork/connect':
+                if not self.owner_ok():
+                    return self.forbidden('owner token required')
+                try:
+                    url = self.server.qwenwork_api.start_login()
+                except qwenwork_api.APIError as exc:
+                    return self.send_json({'ok': False, 'error': str(exc)}, 503)
+                self.send_response(302)
+                self.send_header('Location', url)
+                self.send_header('Cache-Control', 'no-store')
+                self._owner_cookie_header()
+                self.end_headers()
+                return
             if (path == "/estimating" or path.startswith("/api/estimating/")) and not self.owner_ok():
                 return self.forbidden("owner token required")
             if any(module.dispatch_get(self, path) for module in modules()):
@@ -243,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/" or path == "/dashboard":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
-                return self.send_html(founder_page(self.conn))
+                return self.send_html(founder_page(self.conn, getattr(self.server, 'qwenwork_api', None)))
             if path == "/submitted-briefs":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
@@ -251,6 +271,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/state":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
+                # Catch calendar changes made anywhere else (a client booking,
+                # another tool) so the dashboard never shows an out-of-date estimate.
+                refresh_stale_estimates(self.conn)
                 self.conn.execute("BEGIN")
                 return self.send_json(state(self.conn))
             if path.startswith("/p/"):
@@ -305,6 +328,12 @@ class Handler(BaseHTTPRequestHandler):
             self.conn.close()
 
     def owner_route(self, path, data):
+        if path == '/api/qwenwork/draft':
+            try:
+                result = self.server.qwenwork_api.request_draft(self.conn, data['version_id'])
+            except qwenwork_api.APIError as exc:
+                return self.send_json({'ok': False, 'error': str(exc)}, 400)
+            return self.send_json({'ok': True, **result}, 202)
         if estimating.dispatch_post(self, path, data):
             return
         if path in ('/api/calendar/hours', '/api/calendar/block', '/api/calendar/remove'):
@@ -312,7 +341,9 @@ class Handler(BaseHTTPRequestHandler):
                 revision = core.cap.change_calendar(self.conn, path.rsplit('/', 1)[-1], data)
             except (ValueError, TypeError) as exc:
                 return self.send_json({'ok': False, 'message': str(exc)}, 400)
-            return self.send_json({'ok': True, 'revision': revision})
+            # Estimates follow the calendar: re-run the ones this change affects.
+            return self.send_json({'ok': True, 'revision': revision,
+                                   'rerun': refresh_stale_estimates(self.conn)})
         if path == "/api/capacity-preview":
             self.conn.execute("BEGIN")
             try:
@@ -429,6 +460,13 @@ class Handler(BaseHTTPRequestHandler):
             res = core.rotate_token(self.conn, data["version_id"])
             return self.send_json(_explained(res), 200 if res["ok"] else 409)
 
+        if path == "/api/refresh-estimate":
+            try:
+                res = refresh_estimate_for_send(self.conn, data["version_id"], bool(data.get("force")))
+            except ValueError as exc:
+                return self.send_json({"ok": False, "error": str(exc), **deal_logic.refusal([str(exc)])}, 409)
+            return self.send_json(res, 200 if res["ok"] else 404)
+
         if path == "/api/reevaluate":
             try:
                 offer_id = core.reevaluate(self.conn, data["offer_id"])
@@ -442,6 +480,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/confirm-booking":
             res = core.confirm_booking(self.conn, data["version_id"])
+            if res["ok"]:
+                res["rerun"] = refresh_stale_estimates(self.conn)
             code = 200 if res["ok"] else 409
             return self.send_json(_explained(res), code)
 
@@ -1339,6 +1379,63 @@ async function requestChange(btn) {{
 def _esc(text):
     import html
     return html.escape(text or "", quote=True)
+
+
+def refresh_stale_estimates(conn):
+    """Re-run every open estimate the calendar has moved under.
+
+    A deal's latest, not-yet-sent version whose evaluation was made against an
+    older calendar revision is re-estimated on the current calendar, exactly as
+    the Re-run button did. Sent, booked, rejected and test deals are left alone.
+    Returns how many were re-run.
+    """
+    rev = capacity_panel(conn)["revision"]
+    rows = conn.execute(
+        "SELECT d.id AS deal_id, d.source, d.source_id, d.raw_inquiry, v.offer_id"
+        " FROM deals d JOIN proposal_versions v ON v.deal_id=d.id"
+        " AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=d.id)"
+        " JOIN evaluations e ON e.offer_id=v.offer_id"
+        " WHERE v.status IN ('draft','checked','blocked','evaluated')"
+        " AND d.status NOT IN ('closed','rejected','confirmed')"
+        " AND e.capacity_revision IS NOT NULL AND e.capacity_revision != ?"
+        # a newer client change still waiting to be priced is handled by its own flow
+        " AND NOT EXISTS (SELECT 1 FROM offers o2 WHERE o2.deal_id=d.id AND o2.round>"
+        "  (SELECT round FROM offers WHERE id=v.offer_id)"
+        "  AND NOT EXISTS (SELECT 1 FROM evaluations e2 WHERE e2.offer_id=o2.id))",
+        (rev,)).fetchall()
+    done = 0
+    for r in rows:
+        if deal_logic.is_test_deal(r["source"], r["source_id"], r["raw_inquiry"]):
+            continue
+        try:
+            offer_id = core.reevaluate(conn, r["offer_id"])
+            core.evaluate(conn, r["deal_id"], offer_id)
+            done += 1
+        except (ValueError, KeyError) as exc:
+            conn.rollback()
+            print(f"auto re-estimate skipped for {r['deal_id']}: {exc}", flush=True)
+    return done
+
+
+def refresh_estimate_for_send(conn, version_id, force=False):
+    """Before a proposal goes out: make sure it rests on the current calendar.
+
+    If the version's estimate was made on an older calendar (or the caller saw
+    the send refused for capacity), re-run it now on the same terms and return
+    the fresh version for the founder to review. Nothing is sent here; the
+    approval gate and the outbound check still run on the fresh version.
+    """
+    v = conn.execute("SELECT * FROM proposal_versions WHERE id=?", (version_id,)).fetchone()
+    if v is None:
+        return {"ok": False, "error": "version_not_found"}
+    e = conn.execute("SELECT capacity_revision FROM evaluations WHERE offer_id=?", (v["offer_id"],)).fetchone()
+    stale = bool(e and e["capacity_revision"] is not None
+                 and e["capacity_revision"] != core.cap.ledger_revision(conn))
+    if not (stale or force) or v["status"] not in ("draft", "checked", "blocked", "evaluated"):
+        return {"ok": True, "rerun": False, "version_id": version_id}
+    offer_id = core.reevaluate(conn, v["offer_id"])
+    _eval_id, new_version = core.evaluate(conn, v["deal_id"], offer_id)
+    return {"ok": True, "rerun": True, "version_id": new_version}
 
 
 def capacity_panel(conn):
@@ -2677,17 +2774,35 @@ def submitted_briefs_page(conn):
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Submitted briefs</title><style>' + _DESIGN_BASE + '</style></head><body><header><a href="/dashboard">Founder dashboard</a><h1>Submitted briefs</h1></header><main style="max-width:1000px;margin:auto;padding:24px"><p>Private studio review. Receipt storage does not notify Alex or confirm a booking.</p>' + (''.join(cards) or '<p>No submitted briefs yet.</p>') + '</main></body></html>'
 
 
-def founder_page(conn):
+def founder_page(conn, api=None):
     """The founder dashboard (wireframe v5 build, see founder_ui.py)."""
     import founder_ui
     fixtures = [{"source_id": sid, "label": label, "raw": raw, "offer_request": offer}
                 for sid, label, offer, raw in FIXTURES]
+    controls = '<span>QwenWork not connected</span> · <a href="/qwenwork/connect">Connect QwenWork</a>'
+    if api and api.connected():
+        rows = conn.execute("SELECT v.id,v.version_no,d.client FROM proposal_versions v JOIN deals d ON d.id=v.deal_id WHERE v.status IN ('draft','checked','blocked') AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=v.deal_id)").fetchall()
+        controls = '<span>QwenWork connected · founder approval still required</span>'
+        for row in rows:
+            job = conn.execute('SELECT status,error FROM qwenwork_sessions WHERE version_id=? OR result_version_id=? ORDER BY created_at DESC LIMIT 1', (row['id'], row['id'])).fetchone()
+            status = ('saved' if job['status'] == 'done' else job['status']) if job else 'ready'
+            controls += '<div>' + html.escape(row['client']) + ' · version ' + str(row['version_no']) + ' · ' + html.escape(status)
+            if job and job['error']:
+                controls += ' · ' + html.escape(job['error'])
+            controls += ' <button data-qwenwork-version="' + html.escape(row['id'], quote=True) + '">Draft with QwenWork</button></div>'
+        controls += '''<script>document.addEventListener('click',async e=>{const id=e.target.dataset.qwenworkVersion;if(!id)return;e.target.disabled=true;try{const r=await fetch('/api/qwenwork/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version_id:id})});const j=await r.json();if(!j.ok){alert(j.error);e.target.disabled=false;}else location.reload();}catch(_){e.target.disabled=false;}});</script>'''
     # The /submitted-briefs page still exists; it is just not linked from the dashboard.
-    return founder_ui.page(SAMPLE_BADGE, fixtures)
+    return founder_ui.page(SAMPLE_BADGE, fixtures).replace('<body>', '<body><nav style="padding:8px 24px">' + controls + '</nav>', 1)
 
 
 class StudioServer(ThreadingHTTPServer):
     """One media consumer per serving process. SQLite leases coordinate restarts."""
+    def server_close(self):
+        self.qwenwork_stop.set()
+        if self.qwenwork_worker:
+            self.qwenwork_worker.join(timeout=20)
+        super().server_close()
+
     def serve_forever(self, poll_interval=0.5):
         stop = threading.Event()
         def consume():
@@ -2731,7 +2846,8 @@ def load_owner_token(path):
 
 
 def make_server(db_path, port=0, public_origin=None, embed_origin=None,
-                qwenwork_secret_file=None, owner_token_file=None):
+                qwenwork_secret_file=None, owner_token_file=None,
+                qwenwork_client_id=None, qwenwork_redirect_uri=qwenwork_api.REDIRECT_URI):
     """Build a server on loopback with the founder owner token.
 
     Returns (server, owner_token). Without owner_token_file the token is fresh
@@ -2747,6 +2863,9 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
     conn = db.connect(db_path)
     try:
         core.load_seed(conn)
+        conn.executescript(qwenwork_api.SCHEMA)
+        import qwenwork_runtime
+        conn.executescript(qwenwork_runtime.SCHEMA)
         # Deals whose latest version was rejected before the deal status was
         # settled on reject leave the work queue (history is kept).
         # Historical reconciliation is explicit, never an implicit startup write.
@@ -2758,6 +2877,13 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
     server.embed_origins = embed_origins
     server.owner_token = (load_owner_token(owner_token_file) if owner_token_file
                           else secrets.token_urlsafe(24))
+    server.qwenwork_api = qwenwork_api.Client(qwenwork_client_id, qwenwork_redirect_uri)
+    server.qwenwork_stop = threading.Event()
+    server.qwenwork_worker = None
+    if qwenwork_client_id or (server.qwenwork_api.connected() and os.environ.get('BIDPILOT_QWENWORK_EVENT_RUNTIME') == '1'):
+        server.qwenwork_worker = threading.Thread(target=server.qwenwork_api.worker,
+            args=(db_path, server.qwenwork_stop), name='qwenwork-quotes', daemon=True)
+        server.qwenwork_worker.start()
     server.qwenwork_secret = qwenwork_callback.load_secret(qwenwork_secret_file)
     return server, server.owner_token
 
@@ -2775,10 +2901,14 @@ def main():
                         help="Private file holding the founder token so links survive restarts"
                              " (use 'none' for a fresh token each launch)")
     parser.add_argument("--qwenwork-secret-file", help="File holding the shared secret for POST /qwenwork/callback (or set BIDPILOT_QWENWORK_SECRET)")
+    parser.add_argument('--qwenwork-client-id', default=os.environ.get('BIDPILOT_QWENWORK_CLIENT_ID'))
+    parser.add_argument('--qwenwork-redirect-uri', default=qwenwork_api.REDIRECT_URI)
     args = parser.parse_args()
     token_file = None if str(args.owner_token_file).lower() == "none" else args.owner_token_file
     server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin,
-                                      args.qwenwork_secret_file, owner_token_file=token_file)
+                                      args.qwenwork_secret_file, owner_token_file=token_file,
+                                      qwenwork_client_id=args.qwenwork_client_id,
+                                      qwenwork_redirect_uri=args.qwenwork_redirect_uri)
     port = server.server_address[1]
     with server:
         print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token}",

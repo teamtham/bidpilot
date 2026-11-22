@@ -177,6 +177,28 @@ class StudioAssistantTests(unittest.TestCase):
             self.assertEqual(errors,[])
             browser.close()
 
+    def test_browser_submit_is_optimistic_while_assistant_replies(self):
+        import time
+        from playwright.sync_api import sync_playwright, expect
+        with patch.object(assistant, 'generate', return_value=self.answer()):
+            self.start()
+        def generate(parts):
+            time.sleep(3)
+            return self.answer('Where will viewers watch it?')
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base+self.url)
+            page.get_by_text(self.answer()['reply'], exact=True).wait_for()
+            with patch.object(assistant, 'generate', side_effect=generate):
+                page.locator('#text').fill('A launch film')
+                page.locator('#send').click()
+                expect(page.locator('#text')).to_have_value('', timeout=500)
+                expect(page.locator('#turns .me').filter(has_text='A launch film')).to_be_visible(timeout=500)
+                expect(page.locator('#send')).to_be_disabled(timeout=500)
+                page.get_by_text('Where will viewers watch it?', exact=True).wait_for()
+            browser.close()
+
     def test_transport_keeps_certificate_verification(self):
         import io
         import ssl
