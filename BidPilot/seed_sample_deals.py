@@ -2,6 +2,7 @@
 
     python3 seed_sample_deals.py [--db PATH]            # add the samples (idempotent)
     python3 seed_sample_deals.py [--db PATH] --remove   # delete only the seeded rows
+    python3 seed_sample_deals.py [--db PATH] --remove-key tanjong   # delete one sample
 
 Every sample deal goes through the normal service layer (engine evaluation,
 outbound check, founder approval, client acceptance, booking), so the states
@@ -145,18 +146,6 @@ def seed(conn):
                     " Our price floor is S$3,662.40.\n\nThere are options below that keep your date,"
                     " your budget, or all five videos.")
 
-    # Needs info: budget and deadline missing, question not yet sent.
-    tanjong, t_offer = claim(conn, "tanjong", "Tanjong Roasters", "site",
-                             "Three product videos of our new roasts, captioned.",
-                             request("Tanjong Roasters", deliverables=3, caption_versions=3))
-    conn.execute("UPDATE deals SET status='needs_information' WHERE id=?", (tanjong,))
-    core.record_step(conn, tanjong, None, "needs_information", "blocked",
-                     json.dumps({"missing_fields": ["offer.budget_sgd", "offer.deadline"],
-                                 "question": "Hi Tanjong Roasters team, thanks for your note. To put a"
-                                             " proposal together I need two things: your rough budget"
-                                             " and the date you need the videos by. Could you share both?"}))
-    conn.commit()
-
     # Needs your estimate: custom animation the engine can't price.
     marina, m_offer = claim(conn, "marina", "Marina Yoga", "hashmeta",
                             "One animated intro and two cutdowns for social by 18 Dec. Budget about S$2,600.",
@@ -185,8 +174,12 @@ TABLES = [  # child rows first; every row is tied to a SAMPLE- deal
 ]
 
 
-def remove(conn):
-    d = "SELECT id FROM deals WHERE source_id LIKE '" + PREFIX + "%'"
+def remove(conn, key=None):
+    """Delete every sample deal, or only the one seeded under `key`."""
+    if key is not None and not key.replace("-", "").isalnum():
+        raise SystemExit("sample key must be letters, digits or dashes")
+    d = ("SELECT id FROM deals WHERE source_id = '" + PREFIX + key + "'" if key is not None
+         else "SELECT id FROM deals WHERE source_id LIKE '" + PREFIX + "%'")
     q = {"d": d, "v": f"SELECT id FROM proposal_versions WHERE deal_id IN ({d})",
          "o": f"SELECT id FROM offers WHERE deal_id IN ({d})",
          "r": f"SELECT id FROM reservations WHERE deal_id IN ({d})"}
@@ -198,7 +191,7 @@ def remove(conn):
         if table in existing:
             total += conn.execute(f"DELETE FROM {table} WHERE {cond.format(**q)}").rowcount
     conn.commit()
-    if "sample_seed_meta" in existing:
+    if key is None and "sample_seed_meta" in existing:
         row = conn.execute("SELECT value FROM sample_seed_meta WHERE key='working_hours'").fetchone()
         if row and json.loads(row[0]) is not None:
             core.cap.change_calendar(conn, "hours", {"hours": json.loads(row[0])})
@@ -211,10 +204,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--db", type=Path, default=DB_PATH)
     parser.add_argument("--remove", action="store_true", help="delete only the seeded sample deals")
+    parser.add_argument("--remove-key", help="delete one seeded sample deal, e.g. tanjong")
     args = parser.parse_args()
     conn = db.connect(args.db)
     try:
-        remove(conn) if args.remove else seed(conn)
+        if args.remove_key:
+            remove(conn, args.remove_key)
+        elif args.remove:
+            remove(conn)
+        else:
+            seed(conn)
     finally:
         conn.close()
 

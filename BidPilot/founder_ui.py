@@ -114,6 +114,14 @@ th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
 th{font-weight:600;color:var(--mute);font-size:12px}
 td.n,th.n{text-align:right}
 .miss{color:var(--red);font-weight:600}
+.brief11{width:100%;border-collapse:collapse}
+.brief11 th{text-align:left;width:34%;padding:6px 10px 6px 0;font-weight:600;color:var(--mute);vertical-align:top}
+.brief11 td{padding:6px 10px 6px 0;vertical-align:top;overflow-wrap:anywhere}
+.brief11 tr+tr th,.brief11 tr+tr td{border-top:1px solid var(--line)}
+.brief11 .src{text-align:right;white-space:nowrap;width:1%}
+.brief11 .chip.bad{background:var(--red-soft);color:var(--red)}
+.brief11 .was{color:var(--mute)}
+h4.more{font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 4px}
 .tl{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .tl li{display:grid;grid-template-columns:120px 1fr;gap:10px}.tl time{color:var(--mute);font-size:12px}
 .field{display:grid;gap:4px;font-size:13px;font-weight:600}
@@ -232,7 +240,7 @@ var FIELD={'offer.budget_sgd':'Budget','budget_sgd':'Budget','offer.deadline':'D
 var IC={"grid":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/></svg>","tag":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 12V4h8l10 10-8 8z\"/><circle cx=\"7.5\" cy=\"8.5\" r=\"1.2\"/></svg>","doc":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 3h8l4 4v14H6z\"/><path d=\"M14 3v4h4M9 12h6M9 16h6\"/></svg>","chat":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 5h16v11H9l-5 4z\"/></svg>","tool":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14 6a4 4 0 0 0 5 5l-9 9a2.1 2.1 0 0 1-3-3l9-9z\"/></svg>","list":"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01\"/></svg>"};
 
 var ST=null,SNAP='';
-var S={tab:'deals',sub:null,deal:null,rail:false,notes:false,showTest:false,prev:null,hi:null,confirm:null,toast:'',open:{},win:0,pf:'all',sim:{},tick:{},drafts:{},check:{},qty:{},busy:false,more:{}};
+var S={tab:'deals',sub:null,deal:null,rail:false,notes:false,showTest:false,prev:null,hi:null,confirm:null,toast:'',open:{brief:true},win:0,pf:'all',sim:{},tick:{},drafts:{},check:{},qty:{},busy:false,more:{}};
 
 /* ---------- server ---------- */
 async function api(path,data){
@@ -264,7 +272,7 @@ function build(){
  var byClient={},c=0;JOBS=[];
  ((ST.capacity&&ST.capacity.jobs)||[]).forEach(function(j){var k=j.deal_id;if(!byClient[k]){byClient[k]={id:k,client:j.client,c:(c++%3)+1,h:{},deal:k};JOBS.push(byClient[k])}byClient[k].h[j.week]=(byClient[k].h[j.week]||0)+j.hours});
  ST.deals.forEach(function(raw){var d=model(raw);DEALS[d.id]=d;ORDER.push(d.id)});
- if(!S.deal||!DEALS[S.deal]){var first=ORDER.map(function(k){return DEALS[k]}).filter(function(d){return ['review','counter','info','estimate','nofit'].indexOf(d.phase)>-1})[0]||DEALS[ORDER[0]];S.deal=first?first.id:null}}
+ if(!S.deal||!DEALS[S.deal]){var first=ORDER.map(function(k){return DEALS[k]}).filter(function(d){return ['review','counter','estimate','nofit'].indexOf(d.phase)>-1})[0]||DEALS[ORDER[0]];S.deal=first?first.id:null}}
 function model(raw){
  var v=latest(raw),off=(raw.offers.length?raw.offers[raw.offers.length-1].offer:null)||{},d={raw:raw,v:v,id:raw.deal_id,client:raw.client};
  var kind=FMT[off.format]||(off.format?String(off.format).replace(/_/g,' '):'video');
@@ -277,7 +285,7 @@ function model(raw){
  else if(p==='counter_ready')d.phase='counter';
  else if(p==='ready_for_review')d.phase='review';
  else if(p==='draft_blocked'||p==='needs_fresh_estimate')d.phase=(v&&v.verdict==='counter')?'counter':'review';
- else if(p==='needs_info')d.phase=(raw.needs_information&&raw.needs_information.question_sent)?'qsent':'info';
+ else if(p==='needs_info')d.phase='incomplete';   // older briefs sent before every item was required
  else if(p==='no_fit')d.phase='nofit';
  else if(p==='needs_estimate'||p==='new')d.phase='estimate';
  else if(p==='sent'||p==='client_picked'||p==='change_requested')d.phase='sent';
@@ -315,8 +323,7 @@ function freeBefore(by){var t=0;weeksUpTo(by).forEach(function(w){t+=liveFree(w)
 function stat(d){switch(d.phase){
  case 'counter':return d.stale?['Needs fresh estimate','warn']:['Counter ready','warn'];
  case 'review':return d.stale?['Needs fresh estimate','warn']:(d.v&&d.v.outbound_status==='blocked'?['Draft blocked','bad']:['Ready for review','warn']);
- case 'info':return ['Needs info','warn'];case 'estimate':return ['Needs your estimate','warn'];case 'nofit':return ['Doesn’t fit','bad'];
- case 'qsent':return ['Waiting on client','info'];
+ case 'incomplete':return ['Incomplete brief',''];case 'estimate':return ['Needs your estimate','warn'];case 'nofit':return ['Doesn’t fit','bad'];
  case 'sent':return d.v&&d.v.accepted_at?['Client picked an option','warn']:['Waiting on client','info'];
  case 'booked':return ['Booked','ok'];case 'rejected':return ['Rejected',''];default:return ['Test data','']}}
 function headChip(d){
@@ -326,8 +333,8 @@ function railCard(d){var t=stat(d);return '<button class="card-deal'+(d.phase===
 function rail(){
  var all=ORDER.map(function(k){return DEALS[k]});
  var real=all.filter(function(d){return d.phase!=='test'}),tests=all.filter(function(d){return d.phase==='test'});
- var need=real.filter(function(d){return ['review','counter','info','estimate','nofit'].indexOf(d.phase)>-1});
- var prog=real.filter(function(d){return ['sent','booked','qsent'].indexOf(d.phase)>-1});
+ var need=real.filter(function(d){return ['review','counter','incomplete','estimate','nofit'].indexOf(d.phase)>-1});
+ var prog=real.filter(function(d){return ['sent','booked'].indexOf(d.phase)>-1});
  var closed=real.filter(function(d){return d.phase==='rejected'});
  var w=WEEKS[weekIdx()],f=w?liveFree(w):0,c=w?w.budget_hours:0,pct=c?Math.min(100,Math.max(0,(c-f)/c*100)):0;
  return '<nav class="rail'+(S.rail?' open':'')+'" aria-label="Deals">'
@@ -441,7 +448,52 @@ function draftPanel(d){
  return '<section class="panel"><h3><span>'+(d.phase==='info'?'Question for the client':'Draft message')+'</span><span class="note" style="font-weight:400">Click to edit</span></h3><textarea id="draft" aria-label="Draft message">'+esc(draftText(d))+'</textarea>'
  +'<div id="checkpanel">'+checks(d)+'</div></section>'}
 function coll(key,title,body){var o=S.open[key];return '<div class="col"><button data-act="toggle" data-key="'+key+'" aria-expanded="'+(!!o)+'"><span>'+title+'</span><span>'+(o?'−':'+')+'</span></button>'+(o?'<div class="body">'+body+'</div>':'')+'</div>'}
-function briefHtml(d){return '<table><tbody>'+d.brief.map(function(r){return '<tr><th scope="row">'+r[0]+'</th><td>'+(r[1]==null?'<span class="miss">Missing</span>':esc(r[1]))+'</td></tr>'}).join('')+'</tbody></table>'}
+/* The 11 brief items, in the order the client chat shows them. Chat facts are
+   matched with the chat's own patterns (conversation.BRIEF_FIELDS). */
+var BRIEF=__BRIEF_FIELDS__.map(function(f,i){return [f[0],new RegExp(f[1]),['format','production_mode','shoot_days','locations','deliverables','caption_versions','scripting','revision_rounds','deadline','editing_level','budget_sgd'][i]]});
+var PLAIN={production_mode:{edit_only:'Edit only, from their footage',on_location:'On location',one_shoot_day:'One shoot day',multi_day:'Several shoot days'},
+ scripting:{none:'No scripting',light:'Light scripting',full:'Full scripting'},
+ editing_level:{simple:'Simple edit',standard:'Standard edit',premium:'Premium edit',advanced:'Advanced edit'}};
+function words(x){x=String(x).replace(/^production\./,'').replace(/[_.-]+/g,' ').trim();return x.charAt(0).toUpperCase()+x.slice(1)}
+function factText(v,item){
+ if(v===null||v===undefined||v==='')return '';
+ if(typeof v==='boolean')return v?'Yes':'No';
+ if(Array.isArray(v))return v.map(function(x){return factText(x)}).join(', ');
+ if(typeof v==='object')return Object.keys(v).map(function(k){return words(k)+': '+factText(v[k])}).join('; ');
+ if(typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v))return lab(v);
+ if(item==='Your budget'&&(typeof v==='number'||/^[\d,.\s]+$/.test(String(v))))return 'About S$'+String(typeof v==='number'?v.toLocaleString('en-SG'):v).trim();
+ v=String(v);return v.charAt(0).toUpperCase()+v.slice(1)}
+function offerText(k,v){
+ if(v===null||v===undefined||v==='')return null;
+ if(k==='format')return FMTCHIP[v]||words(v);
+ if(PLAIN[k])return PLAIN[k][v]||words(v);
+ if(k==='shoot_days')return v===0?'No shoot days':v+' shoot day'+(v===1?'':'s');
+ if(k==='locations')return v===0?'No locations':v+' location'+(v===1?'':'s');
+ if(k==='revision_rounds')return v+' round'+(v===1?'':'s');
+ if(k==='deadline')return lab(v);
+ if(k==='budget_sgd')return 'About '+money(v);
+ return String(v)}
+function briefModel(d){
+ var off=(d.raw.offers.length?d.raw.offers[d.raw.offers.length-1].offer:null)||{},used={};
+ /* deadline_kind only says which kind of date was asked about; the date itself is its own fact */
+ var facts=(d.raw.brief_facts||[]).filter(function(x){return !/deadline_kind/.test(x.subject)});
+ var ch={},v=d.v;((v&&v.comparison&&v.comparison.changed_fields)||[]).forEach(function(f){ch[f.field]=f.old});
+ var missing=(d.missing||[]).map(function(x){return x==='Budget'?'Your budget':x});
+ var rows=BRIEF.map(function(b){
+  var f=null;facts.forEach(function(x){if(!f&&!used[x.subject]&&b[1].test(x.subject)){f=x;used[x.subject]=1}});
+  var text=f?(f.status==='excluded'?'Not needed':factText(f.value,b[0])):null;
+  if(!text)text=missing.indexOf(b[0])>-1?null:offerText(b[2],off[b[2]]);
+  var was=ch[b[2]]!=null?offerText(b[2],ch[b[2]]):null;
+  return {label:b[0],text:text||null,was:was}});
+ var more=facts.filter(function(x){return !used[x.subject]}).map(function(x){return {label:words(x.subject),text:x.status==='excluded'?'Not needed':factText(x.value)}}).filter(function(r){return r.text});
+ return {rows:rows,more:more}}
+function briefHtml(d){
+ var m=briefModel(d),n=m.rows.filter(function(r){return r.text}).length;
+ var h='<p class="note">'+n+' of 11 given.</p><div class="tw"><table class="brief11"><tbody>'
+ +m.rows.map(function(r){var miss=!r.text;
+  return '<tr><th scope="row">'+r.label+'</th><td>'+(miss?'<span class="miss">Not given yet</span>':esc(r.text)+(r.was?' <span class="was">(was '+esc(r.was)+')</span>':''))+'</td><td class="src">'+(miss?'<span class="chip bad">Ask them</span>':'')+'</td></tr>'}).join('')+'</tbody></table></div>';
+ if(m.more.length)h+='<h4 class="more">Other details</h4><div class="tw"><table class="brief11"><tbody>'+m.more.map(function(r){return '<tr><th scope="row">'+esc(r.label)+'</th><td colspan="2">'+esc(r.text)+'</td></tr>'}).join('')+'</tbody></table></div>';
+ return h}
 var STEP={claimed:'Brief received',resume:'Brief received again',intake:'Intake saved',scoping:'Similar past jobs picked',engine:'Estimate made',engine_evaluate:'Estimate made',reevaluate:'Estimate re-run',draft:'Draft written',edit_draft:'You edited the draft',outbound:'Draft checked',outbound_check:'Draft checked',review:'Waiting for your review',approve:'Proposal sent',reject:'You rejected this',client_change:'Client asked for a change',client_accept:'Client picked an option',capacity_revalidate:'Calendar re-checked',rotate_token:'Client link reissued',confirm_booking:'You confirmed the booking',close_deal:'Deal closed',needs_information:'Checked what was missing',stale_version:'Change was for an older version',error:'Something went wrong'};
 function stepLine(s){
  var t=STEP[s.step_key]||String(s.step_key).replace(/_/g,' '),n='';
@@ -507,8 +559,7 @@ function dealView(d){
  if(d.phase==='test')return h+'<section class="panel"><h3>Test data</h3><p>This deal comes from an evaluation run. It is kept out of your queue and your calendar.</p><div class="row"><button class="btn" data-act="showTest">Hide test data</button></div></section></div>';
  if(d.phase==='booked')return h+'<section class="sent" style="background:var(--green-soft)"><b>Booked</b><span>You confirmed this on '+esc(approvalAt(d,'confirm_booking'))+'. The hours are set aside on your calendar.</span>'+(d.v&&d.v.accepted_option&&d.v.accepted_option.terms?'<span>Client accepted: '+esc(optLabel(d.v.accepted_option.terms))+'.</span>':'')+'<div class="row" style="margin-top:4px"><button class="btn" data-act="tab" data-tab="calendar">Open on the calendar</button></div></section>'+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='rejected')return h+'<section class="panel"><h3>Rejected</h3><p>You rejected this on '+esc(approvalAt(d,'reject')||d.rcv)+'. Nothing was sent to the client. It stays here for history and no longer counts in your queue.</p></section>'+coll('hist','History',histHtml(d))+'</div>';
- if(d.phase==='info')return h+'<section class="panel"><h3>I need a bit more before I can price this</h3><p>Missing: <b class="miss">'+esc((d.missing||[]).join(' and ')||'details not recorded')+'</b>.</p><div style="margin-top:10px">'+briefHtml(d)+'</div></section><div class="cols">'+draftPanel(d)+simPanel(d)+'</div>'+coll('hist','History',histHtml(d))+'</div>';
- if(d.phase==='qsent')return h+'<section class="sent"><b>Question sent to '+esc(d.client)+'</b><span>It comes back to your queue when they reply with their '+esc((d.missing||[]).join(' and ').toLowerCase()||'details')+'.</span></section>'+coll('hist','History',histHtml(d))+'</div>';
+ if(d.phase==='incomplete')return h+'<section class="panel"><h3>Incomplete brief</h3><p>This brief came in before the chat and the form required every item, so some items were never given. Nothing has been sent to the client.</p></section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='estimate'){var form=estimateForm(d);return h+whyLine(whyUnpriced(d))+liveEstimatePanel(d)+form+simPanel(d)+coll('brief','Brief',briefHtml(d))+'</div>'}
  if(d.phase==='nofit')return h+whyLine('I estimated this, but no option fits your calendar or your prices before '+(d.ask?lab(d.ask.by):'the deadline')+'.')+(d.est?estimatePanel(d):'')+'<section class="panel"><h3>Nothing fits as asked</h3><p>Free up time on the calendar or change the brief, then re-run the estimate. Or reject the deal; nothing is sent to the client.</p><div class="row"><button class="btn pri" data-act="rerun">Re-run the estimate</button><button class="btn" data-act="tab" data-tab="calendar">Open the calendar</button><button class="btn danger" data-act="reject">Reject</button></div>'+(S.confirm&&S.confirm.deal===d.id?'<div class="confirm"><b>Reject this deal?</b><p class="note" style="margin:4px 0 8px">Nothing is sent to the client. The deal moves to Closed and keeps its history.</p><div class="row" style="margin-top:0"><button class="btn pri" data-act="doReject">Yes, reject</button><button class="btn" data-act="cancel">Cancel</button></div></div>':'')+'</section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='sent')h+=sentCard(d);
@@ -729,6 +780,8 @@ schedulePolling();
 
 def page(badge, fixtures):
     fixtures_json = json.dumps(fixtures).replace("</", "<\\/")
+    import conversation
+    js = JS.replace("__BRIEF_FIELDS__", json.dumps([[n, p] for n, p in conversation.BRIEF_FIELDS]))
     return ('<!doctype html><html lang="en" data-theme="light" style="color-scheme:light"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light">'
             '<title>BidPilot founder dashboard</title>'
@@ -739,4 +792,4 @@ def page(badge, fixtures):
             '<div id="app"><p>Loading deals…</p></div>'
             '<noscript>BidPilot needs JavaScript.</noscript>'
             '<script>const FIXTURES = ' + fixtures_json + ';\n</script>'
-            '<script>' + JS + '</script></body></html>')
+            '<script>' + js + '</script></body></html>')

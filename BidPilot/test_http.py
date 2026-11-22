@@ -242,15 +242,16 @@ class HttpTests(unittest.TestCase):
             self.assertNotIn(banned, html)
 
     # -- C5: what-changed comparison + needs-info (founder-only) -------------
-    def test_founder_dashboard_serves_what_changed_and_needs_info(self):
+    def test_founder_dashboard_serves_what_changed_and_incomplete_briefs(self):
         status, html = self.get("/")
         self.assertEqual(status, 200)
-        # Changed terms show inline in the Brief ("was ..."); needs-info deals
-        # list exactly what is missing; plain-language warnings replace codes.
-        for marker in ("(was ", "changed_fields", "Needs info", "Missing",
-                       "needs_information", "I need a bit more before I can price this",
-                       "Not enough time before", "Price is under your minimum"):
+        # Changed terms show inline in the Brief ("was ..."); older briefs with
+        # missing items say so; plain-language warnings replace codes.
+        for marker in ("(was ", "changed_fields", "Incomplete brief", "Not given yet",
+                       "of 11 given", "Not enough time before", "Price is under your minimum"):
             self.assertIn(marker, html)
+        for gone in ("Needs info", "I need a bit more before I can price this"):
+            self.assertNotIn(gone, html)
 
     def test_client_page_never_exposes_comparison_or_needs_info(self):
         f = self.flow("cmp-iso-1")
