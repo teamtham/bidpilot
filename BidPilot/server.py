@@ -839,7 +839,7 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
     previous_published = earlier[0] if earlier else None
     counter_design = previous_published is not None
     client_version = len(earlier) + 1
-    title = "Alex Studio — your proposal" if not preview else "Owner preview — client page"
+    title = "Alex Tan Productions — your proposal" if not preview else "Owner preview — client page"
     story_html = commerce.proposal_html(conn, version, preview)
     hero_title = composed["headline"] or ("Pick the option that fits" if counter_design else "Your proposal")
     hero_intro = composed["introduction"] or version["draft_body"]
@@ -1046,7 +1046,7 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
 <meta name="robots" content="noindex,nofollow"><title>{_esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap">
 <style>{PROPOSAL_STYLE}</style></head><body class="site" data-proposal-design="{'counter' if counter_design else 'initial'}">
-<header class="site-top"><span class="brand">Alex Studio</span><span class="small muted">Private proposal for {_esc(client['client'])}, version {client_version}</span>{badge}</header>
+<header class="site-top"><span class="brand">Alex Tan Productions</span><span class="small muted">Private proposal for {_esc(client['client'])}, version {client_version}</span>{badge}</header>
 <main class="site-body">{status_banner}{body_html}<p id="msg" role="status" aria-live="polite"></p></main><script>
 // Submit handlers are synchronous: they prevent the native form POST and
 // disable the button BEFORE starting the async JSON request, so a Promise
@@ -1747,7 +1747,7 @@ _FIXTURES_JSON = json.dumps([
 
 
 DASH_STYLE = r"""
-/* Founder dashboard: values copied from the Alex Studio wireframe (Scenes 3 and 5). */
+/* Founder dashboard: values copied from the Alex Tan Productions wireframe (Scenes 3 and 5). */
 [hidden] { display: none !important; }
 :root { --b-bg: #f2f4f3; --b-panel: #ffffff; --b-ink: #17201d; --b-mute: #5d6a65; --b-line: #dde2df;
   --b-teal: #0e6b5b; --b-teal-tint: #dff0eb;
@@ -1765,14 +1765,14 @@ button { font: 600 13.5px var(--ui); border-radius: 7px; padding: 10px 16px; }
 button.ghost { background: #fff; color: var(--b-ink); border: 1px solid var(--b-line); }
 button.ghost:hover { background: #f6f2ee; border-color: var(--b-line); color: var(--b-ink); }
 .topnav { grid-column: 1 / -1; display:flex; align-items:center; gap:12px; padding:12px 0; margin:0 24px; border-bottom:1px solid var(--b-line); background:var(--b-bg); }
-.topnav button { background:transparent; color:var(--b-mute); border:0; } .topnav button[aria-current="page"] { background:var(--b-teal-tint);color:var(--b-teal); } .navlogo {display:flex;gap:8px;align-items:center;font-size:16px} .navlogo i {width:20px;height:20px;border-radius:6px;background:var(--b-teal)} .rail-toggle {display:none;}
+.topnav button { background:transparent; color:var(--b-mute); border:0; } .topnav button[aria-current="page"] { background:var(--b-teal-tint);color:var(--b-teal); } .navlogo {display:flex;gap:8px;align-items:center;font-size:16px} .navlogo i {width:22px;height:22px;background:url(data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27%231e9e5a%27%20d=%27M22%202%202%209.5l8.2%203.3L13.5%2021z%27/%3E%3Cpath%20fill=%27none%27%20stroke=%27%23fff%27%20stroke-width=%271.4%27%20stroke-linecap=%27round%27%20d=%27M22%202%2010.2%2012.8%27/%3E%3C/svg%3E) center/contain no-repeat} .rail-toggle {display:none;}
 .topnav span { margin-left:auto; color:var(--b-mute); font-size:12px; }
 .founder-shell.dash { max-width: none; min-height: 100vh; margin: 0; padding: 0; display: grid;
   grid-template-columns: 272px minmax(0, 1fr); column-gap:24px; padding:0 24px; background: var(--b-bg); color: var(--b-ink); }
 .side { background: transparent; border-right: 0; padding: 20px 0; display: grid;
   align-content: start; gap: 10px; }
 .side .logo { font: 700 15px var(--ui); display: flex; align-items: center; gap: 8px; }
-.side .logo i { width: 18px; height: 18px; border-radius: 5px; background: var(--b-teal); display: inline-block; }
+.side .logo i { width: 20px; height: 20px; background: url(data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27%231e9e5a%27%20d=%27M22%202%202%209.5l8.2%203.3L13.5%2021z%27/%3E%3Cpath%20fill=%27none%27%20stroke=%27%23fff%27%20stroke-width=%271.4%27%20stroke-linecap=%27round%27%20d=%27M22%202%2010.2%2012.8%27/%3E%3C/svg%3E) center/contain no-repeat; display: inline-block; }
 .side h6 { margin: 8px 0 0; font: 600 12px var(--ui); color: var(--b-mute); }
 .deal-queue { display: grid; gap: 10px; margin: 0; }
 button.rail-deal { border: 1px solid var(--b-line); border-radius: 8px; padding: 9px 10px; display: grid; gap: 3px;
