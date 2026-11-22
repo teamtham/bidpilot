@@ -176,7 +176,7 @@ class Client:
                 raise APIError('stale_scope')
             context = conversation.context(conn, {'inquiry_id': inquiry['id']})
             superseded = {f['supersedes'] for f in context['facts'] if f.get('supersedes')}
-            material = {'studio_name': 'Alex Studio',
+            material = {'studio_name': 'Alex Tan Productions',
                         'client_messages': [t['body'] for t in context['turns'] if t['sender'] == 'buyer'],
                         'confirmed_facts': [{'subject': f['subject'], 'value': f['value']} for f in context['facts'] if f['status'] == 'confirmed' and f['id'] not in superseded],
                         'options': [db.uj(r['public_terms_json']) for r in options]}

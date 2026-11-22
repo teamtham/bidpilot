@@ -298,7 +298,7 @@ a{color:var(--b-teal)}
 :focus-visible{outline:2px solid var(--b-teal);outline-offset:2px}
 .topbar{display:flex;align-items:center;gap:18px;padding:12px 24px;background:#fff;border-bottom:1px solid var(--b-line);flex-wrap:wrap}
 .logo{font:700 15px var(--ui);display:flex;align-items:center;gap:8px;color:var(--b-ink);text-decoration:none}
-.logo i{width:18px;height:18px;border-radius:5px;background:var(--b-teal);display:inline-block}
+.logo i{width:20px;height:20px;background:url(data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27%231e9e5a%27%20d=%27M22%202%202%209.5l8.2%203.3L13.5%2021z%27/%3E%3Cpath%20fill=%27none%27%20stroke=%27%23fff%27%20stroke-width=%271.4%27%20stroke-linecap=%27round%27%20d=%27M22%202%2010.2%2012.8%27/%3E%3C/svg%3E) center/contain no-repeat;display:inline-block}
 .topnav{display:flex;gap:16px;font-size:13px;flex-wrap:wrap}
 .topnav a{color:var(--b-mute);text-decoration:none;padding:2px 0;border-bottom:2px solid transparent}
 .topnav a:hover{color:var(--b-ink)}
