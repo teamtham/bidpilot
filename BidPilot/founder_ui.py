@@ -82,6 +82,15 @@ h1,h2,h3,h4,p{margin:0}
 .stale .btn.pri{background:var(--teal);color:var(--teal-ink)}
 .okline{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--green);background:var(--green-soft);border-radius:8px;padding:8px 12px}
 .said{background:var(--soft);border-radius:10px;padding:12px 16px}
+.chg table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
+.chg th,.chg td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.chg thead th{font-size:12px;color:var(--mute);font-weight:500}
+.chg td.was{color:var(--mute);text-decoration:line-through}.chg td.now{font-weight:600}
+.chg .figs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.chg .fig.delta b{color:var(--teal)}
+.rec{margin-top:12px;border-radius:8px;padding:10px 12px;background:var(--teal-soft);color:var(--ink);display:grid;gap:2px}
+.rec.counter{background:var(--amber-soft)}.rec.decline{background:var(--red-soft)}
+.rec b{font-size:14px}.rec span{font-size:13px}
 .said q{display:block;font-size:15px;quotes:none}
 .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 .opt{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:4px;margin-bottom:8px}
@@ -553,6 +562,31 @@ function estimateForm(d){
 function readTotals(d){var h=0,p=0,q=S.qty[d.id]||{};(ST.price_list||[]).forEach(function(r){var el=document.getElementById('q-'+r.id),n=el?(parseFloat(el.value)||0):(q[r.id]||0);h+=n*r.hours;p+=n*r.price_sgd});return {h:h,p:p}}
 function totalsHtml(t){return 'Total: <b>'+n1(t.h)+' h</b> and <b>'+money(t.p)+'</b>'}
 
+function priorVersion(d){var c=d.v&&d.v.comparison;if(!c||!c.prior_offer_id)return null;var vs=d.raw.versions.filter(function(x){return x.offer_id===c.prior_offer_id});return vs.length?vs[vs.length-1]:null}
+function priorPrice(d){var pv=priorVersion(d);if(!pv)return null;var opts=pv.options||[],pick=null;
+ var acc=pv.accepted_option&&pv.accepted_option.terms;if(acc)pick=acc;
+ if(!pick&&pv.selected_option_id)pick=opts.filter(function(o){return o.option_id===pv.selected_option_id})[0];
+ if(!pick&&pv.offered_option_ids&&pv.offered_option_ids.length){var m={};(pv.option_meta||[]).forEach(function(x){m[x.option_row_id]=x.option_id});pick=opts.filter(function(o){return pv.offered_option_ids.some(function(id){return m[id]===o.option_id})})[0]}
+ if(!pick)pick=opts[0];return pick?{no:pv.version_no,price:pick.price_sgd}:null}
+var CHG_FIELD={deliverables:'Videos',caption_versions:'Captioned versions',deadline:'Deadline',budget_sgd:'Their budget'};
+function changePanel(d){
+ var v=d.v,c=v&&v.comparison;if(!c||!c.is_revision||!v.verdict||['review','counter','nofit'].indexOf(d.phase)<0)return '';
+ function fmt(f,x){if(x==null||x==='')return 'not given';if(f==='deadline')return lab(x);if(/_sgd$/.test(f))return money(x);return String(x).replace(/_/g,' ')}
+ var rows=(c.changed_fields||[]).map(function(f){return '<tr><th scope="row">'+esc(CHG_FIELD[f.field]||words(f.field))+'</th><td class="was">'+esc(fmt(f.field,f.old))+'</td><td class="now">'+esc(fmt(f.field,f.new))+'</td></tr>'}).join('');
+ var prior=priorPrice(d),was=prior?'version '+prior.no:'the current proposal',e=v.estimate||{},total=null,cls='',title,why,note='';
+ var full=d.opts.filter(function(o){return o.key==='hold_scope'})[0]||d.opts.filter(function(o){return o.key==='as_offered'})[0];
+ if(v.verdict==='accept'||v.verdict==='accept_with_approval'){total=d.opts.length?d.opts[0].price:e.list_sgd;title='Accept the change at '+money(total);
+  why=v.verdict==='accept'?'It fits your calendar and their budget covers it.':'It fits your calendar. Their budget is under your list price but above your minimum, so it’s your call.';note='Price for the change as the client asked.'}
+ else if(v.verdict==='counter'){cls=' counter';total=full?full.price:e.list_sgd;title='Send counter options';
+  why='The change doesn’t fit as asked. Each option below keeps one of the client’s wishes. Untick any you don’t want to offer.';note=full?'Full change on a date that fits ('+full.name+').':'List price for the change as asked.'}
+ else if(v.verdict==='decline'){cls=' decline';title='Decline the change and keep '+was+' open';why='No option fits your calendar and their budget. The current proposal still stands for the client to accept.';note='No price works for this change.'}
+ else{title='This change needs your own estimate';why='The engine couldn’t price it with your current rules.'}
+ var delta=(total!=null&&prior)?total-prior.price:null;
+ var figs='<div class="figs">'+(prior?'<div class="fig"><span>Client pays now ('+esc(was)+')</span><b>'+money(prior.price)+'</b></div>':'')
+  +'<div class="fig"><span>Suggested new total</span><b>'+(total!=null?money(total):'—')+'</b></div>'
+  +(delta!=null?'<div class="fig delta"><span>The change costs</span><b>'+(delta>=0?'+':'−')+money(Math.abs(delta))+'</b></div>':'')+'</div>';
+ return '<section class="panel chg"><h3><span>What changed since '+esc(was)+'</span></h3>'+(rows?'<table><thead><tr><th>Item</th><th>Was</th><th>Now</th></tr></thead><tbody>'+rows+'</tbody></table>':'')
+  +figs+'<p class="note">'+esc(note)+'</p><div class="rec'+cls+'"><b>Suggested: '+esc(title)+'</b><span>'+esc(why)+'</span><span class="note">The engine only suggests. You decide below.</span></div></section>'}
 function dealView(d){
  if(!d)return '<div class="main"><section class="panel"><h3>No deals yet</h3><p>New Hashmeta inquiries appear here after QwenWork claims them.</p></section></div>';
  var h='<div class="main">'+head(d);
@@ -561,9 +595,10 @@ function dealView(d){
  if(d.phase==='rejected')return h+'<section class="panel"><h3>Rejected</h3><p>You rejected this on '+esc(approvalAt(d,'reject')||d.rcv)+'. Nothing was sent to the client. It stays here for history and no longer counts in your queue.</p></section>'+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='incomplete')return h+'<section class="panel"><h3>Incomplete brief</h3><p>This brief came in before the chat and the form required every item, so some items were never given. Nothing has been sent to the client.</p></section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='estimate'){var form=estimateForm(d);return h+whyLine(whyUnpriced(d))+liveEstimatePanel(d)+form+simPanel(d)+coll('brief','Brief',briefHtml(d))+'</div>'}
- if(d.phase==='nofit')return h+whyLine('I estimated this, but no option fits your calendar or your prices before '+(d.ask?lab(d.ask.by):'the deadline')+'.')+(d.est?estimatePanel(d):'')+'<section class="panel"><h3>Nothing fits as asked</h3><p>Free up time on the calendar or change the brief, then re-run the estimate. Or reject the deal; nothing is sent to the client.</p><div class="row"><button class="btn pri" data-act="rerun">Re-run the estimate</button><button class="btn" data-act="tab" data-tab="calendar">Open the calendar</button><button class="btn danger" data-act="reject">Reject</button></div>'+(S.confirm&&S.confirm.deal===d.id?'<div class="confirm"><b>Reject this deal?</b><p class="note" style="margin:4px 0 8px">Nothing is sent to the client. The deal moves to Closed and keeps its history.</p><div class="row" style="margin-top:0"><button class="btn pri" data-act="doReject">Yes, reject</button><button class="btn" data-act="cancel">Cancel</button></div></div>':'')+'</section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
+ if(d.phase==='nofit')return h+whyLine('I estimated this, but no option fits your calendar or your prices before '+(d.ask?lab(d.ask.by):'the deadline')+'.')+changePanel(d)+(d.est?estimatePanel(d):'')+'<section class="panel"><h3>Nothing fits as asked</h3><p>Free up time on the calendar or change the brief, then re-run the estimate. Or reject the deal; nothing is sent to the client.</p><div class="row"><button class="btn pri" data-act="rerun">Re-run the estimate</button><button class="btn" data-act="tab" data-tab="calendar">Open the calendar</button><button class="btn danger" data-act="reject">Reject</button></div>'+(S.confirm&&S.confirm.deal===d.id?'<div class="confirm"><b>Reject this deal?</b><p class="note" style="margin:4px 0 8px">Nothing is sent to the client. The deal moves to Closed and keeps its history.</p><div class="row" style="margin-top:0"><button class="btn pri" data-act="doReject">Yes, reject</button><button class="btn" data-act="cancel">Cancel</button></div></div>':'')+'</section>'+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  if(d.phase==='sent')h+=sentCard(d);
  if(d.said)h+='<section class="said"><span class="note">Client said</span><q>“'+esc(d.said)+'”</q><span class="note">Client text. Treated as a request, not an approval.</span></section>';
+ if(d.phase!=='sent')h+=changePanel(d);
  if(d.phase==='sent')return h+(d.est?estimatePanel(d):'')+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
  h+=d.stale?staleBlock(d):'<div class="okline"><span>✓</span><span>Calendar checked. Nothing has changed since this estimate. <button class="link" data-act="tab" data-tab="calendar">Open the calendar</button></span></div>';
  if(d.est)h+=estimatePanel(d);
