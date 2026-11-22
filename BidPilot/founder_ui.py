@@ -300,7 +300,7 @@ function model(raw){
  else if(p==='sent'||p==='client_picked'||p==='change_requested')d.phase='sent';
  else if(p==='booked')d.phase='booked';
  else d.phase='rejected';
- d.stale=!!raw.needs_fresh_estimate&&(d.phase==='review'||d.phase==='counter');
+ d.stale=false;   // the server re-runs any estimate the calendar moves under, so none is ever out of date
  var e=v&&v.estimate;
  if(e&&d.ask){var all=(v.capacity_changes&&v.capacity_changes.length)?v.capacity_changes.map(function(x){return {week:x.week,free:Math.max(0,x.before)}}):weeksUpTo(d.ask.by).map(function(w){return {week:w.week,free:liveFree(w)}});
   d.est={need:e.planning_hours,free:e.capacity_hours,fit:['accept','accept_with_approval'].indexOf(v.verdict)>-1,list:e.list_sgd,lowest:e.floor_sgd,rate:e.planning_hours?e.list_sgd/e.planning_hours:0,past:(v.comparables&&v.comparables.used||[]).length,buffer:e.buffer_pct==null?15:e.buffer_pct,all:all}}
@@ -365,7 +365,7 @@ function weekStrip(d){
  return '<div class="wstrip"><span class="note">Free hours by week before '+lab(d.ask.by)+':</span>'+rows.map(function(x,i){return '<span class="wchip'+(i===min&&!d.est.fit?' tight':'')+'">'+lab(monday(x.week))+': <b>'+n1(x.free)+' h</b></span>'}).join('')+'</div>'}
 function estimatePanel(d){
  var e=d.est,st=d.stale,fit=e.fit;
- var title=st?'Engine estimate, private to you':(fit?'Engine estimate, private to you':(d.phase==='nofit'?'Why nothing fits':'Why this needs a counter offer'));
+ var title=st?'Engine estimate':(fit?'Engine estimate':(d.phase==='nofit'?'Why nothing fits':'Why this needs a counter offer'));
  var h='<section class="panel'+(st?' dim':'')+'"><h3><span>'+title+'</span>'+(st?'<span class="chip warn">Out of date</span>':'')+'</h3>'+figs(d)
   +need2bar(e)+weekStrip(d)
   +'<p class="note">Works out to '+money(e.rate,1)+' an hour. Based on '+e.past+' similar past job'+(e.past===1?'':'s')+', plus '+e.buffer+'% extra time for surprises.</p>';
@@ -544,7 +544,7 @@ function liveEst(d){
 function liveEstimatePanel(d){
  if(!d.ask||!d.ask.by)return '';
  var e=liveEst(d),has=e.need>0;
- var h='<section class="panel" id="livest"><h3><span>Estimate from your price list, private to you</span><span class="chip">Not run yet</span></h3>'
+ var h='<section class="panel" id="livest"><h3><span>Estimate from your price list</span><span class="chip">Not run yet</span></h3>'
   +'<div class="figs"><div class="fig"><span>Hours needed</span><b>'+(has?n2(e.need)+' h':'–')+'</b></div><div class="fig"><span>Free hours before '+lab(d.ask.by)+'</span><b>'+n2(e.free)+' h</b></div><div class="fig"><span>List price</span><b>'+(has?money(e.list,1):'–')+'</b></div><div class="fig"><span>Lowest you’d accept</span><b>–<small>set when you run it</small></b></div></div>';
  if(!has)return h+'<p class="note" style="margin-top:10px">Fill in the table below to see the hours and whether it fits.</p></section>';
  var dd={ask:d.ask,est:e};
@@ -600,7 +600,7 @@ function dealView(d){
  if(d.said)h+='<section class="said"><span class="note">Client said</span><q>“'+esc(d.said)+'”</q><span class="note">Client text. Treated as a request, not an approval.</span></section>';
  if(d.phase!=='sent')h+=changePanel(d);
  if(d.phase==='sent')return h+(d.est?estimatePanel(d):'')+coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d))+'</div>';
- h+=d.stale?staleBlock(d):'<div class="okline"><span>✓</span><span>Calendar checked. Nothing has changed since this estimate. <button class="link" data-act="tab" data-tab="calendar">Open the calendar</button></span></div>';
+ if(d.stale)h+=staleBlock(d);
  if(d.est)h+=estimatePanel(d);
  h+='<div class="cols"><div style="display:grid;gap:16px">'+optionsPanel(d)+simPanel(d)+'</div>'+draftPanel(d)+'</div>';
  h+=coll('brief','Brief',briefHtml(d))+coll('hist','History',histHtml(d));
@@ -725,6 +725,7 @@ window.addEventListener('hashchange',parse);
 
 /* ---------- actions ---------- */
 function cur(){return DEALS[S.deal]}
+function rerunNote(r){var n=r&&r.rerun||0;return n?' '+n+' estimate'+(n===1?' was':'s were')+' re-run on your new calendar.':''}
 function liveDraft(d){var t=document.getElementById('draft');if(t)S.drafts[d.id]=t.value;return draftText(d)}
 async function approveFlow(d){
  var text=liveDraft(d);S.busy=true;render();
@@ -771,7 +772,7 @@ document.addEventListener('click',async function(e){
   case 'doReject':S.busy=true;r=await api('/api/reject',{version_id:d.v.version_id});S.busy=false;S.confirm=null;await refreshState(false);topPane();say(r.ok?'Rejected. Nothing was sent to the client.':(r.message||'Reject was refused.'));break;
   case 'copy':v=location.origin+d.v.client_url;try{navigator.clipboard.writeText(v).then(function(){say('Link copied.')},function(){say('Copy blocked here. Select the link above.')})}catch(x){say('Copy blocked here. Select the link above.')}break;
   case 'page':window.open(d.v.client_url,'_blank','noopener');break;
-  case 'confirmBooking':S.busy=true;r=await api('/api/confirm-booking',{version_id:d.v.version_id});S.busy=false;await refreshState(false);say(r.ok?'Booking confirmed. The hours are set aside on your calendar.':(r.message||'Confirm was refused.'));break;
+  case 'confirmBooking':S.busy=true;r=await api('/api/confirm-booking',{version_id:d.v.version_id});S.busy=false;await refreshState(false);say(r.ok?'Booking confirmed. The hours are set aside on your calendar.'+rerunNote(r):(r.message||'Confirm was refused.'));break;
   case 'rates':go('price-list');break;
   case 'tool':v=b.dataset.tool;if(v==='rates')go('price-list');else if(v==='portfolio')go('portfolio-library');else if(v==='demo')go('demo-tools');else if(v==='log')go('run-log');else if(v==='proposals')location.href='/commerce';else if(v==='inquiry')window.open('/inquire','_blank','noopener');break;
   case 'pf':S.pf=b.dataset.f;render();break;
@@ -788,13 +789,13 @@ document.addEventListener('click',async function(e){
    say(r.ok?'Estimate done from your price list. A draft is ready.':(r.message||'The estimate could not be made.'));break;
   case 'win':v=parseInt(b.dataset.d,10);S.win=v===0?0:S.win+v;render();break;
   case 'saveHrs':v=parseFloat(document.getElementById('hrs').value);if(!(v>0)||v>80){say('Enter hours between 1 and 80.');break}
-   r=await api('/api/calendar/hours',{hours:v});await refreshState(false);say(r.ok?'Working hours saved. '+ORDER.filter(function(k){return DEALS[k].stale}).length+' proposal(s) now need a fresh estimate.':(r.message||'Not saved.'));break;
+   r=await api('/api/calendar/hours',{hours:v});await refreshState(false);say(r.ok?'Working hours saved.'+rerunNote(r):(r.message||'Not saved.'));break;
   case 'addBlock':
    var bw=document.getElementById('bw').value,bh=parseFloat(document.getElementById('bh').value),br=document.getElementById('br').value;
    if(!(bh>0)||bh>80){say('Enter hours between 1 and 80.');break}
    r=await api('/api/calendar/block',{week:bw,hours:bh,reason:br});await refreshState(false);
-   say(r.ok?'Blocked '+n1(bh)+' h in the week of '+lab(monday(bw))+'. '+ORDER.filter(function(k){return DEALS[k].stale}).length+' proposal(s) now need a fresh estimate.':(r.message||'Not saved.'));break;
-  case 'delBlock':r=await api('/api/calendar/remove',{id:b.dataset.id});await refreshState(false);if(!r.ok)say(r.message||'Not removed.');break;
+   say(r.ok?'Blocked '+n1(bh)+' h in the week of '+lab(monday(bw))+'.'+rerunNote(r):(r.message||'Not saved.'));break;
+  case 'delBlock':r=await api('/api/calendar/remove',{id:b.dataset.id});await refreshState(false);say(r.ok?'Block removed.'+rerunNote(r):(r.message||'Not removed.'));break;
   case 'importRun':var st=document.getElementById('run-status'),bundle;try{bundle=JSON.parse(document.getElementById('run-json').value)}catch(x){st.textContent='Enter valid run JSON.';break}r=await api('/api/import-run',bundle);st.textContent=r.ok?'Imported run.':'Import failed. '+(r.message||r.error||'');refresh();break;
   case 'resetSample':var rs=document.getElementById('reset-status');r=await api('/api/reset-sample',{confirm:document.getElementById('reset-confirm').value,request_id:crypto.randomUUID()});rs.textContent=r.ok?'Sample data reset.':'Reset refused. '+(r.message||r.error||'');refresh();break;
  }
