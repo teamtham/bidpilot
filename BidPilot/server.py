@@ -2506,7 +2506,7 @@ def founder_page(conn, api=None):
     import founder_ui
     fixtures = [{"source_id": sid, "label": label, "raw": raw, "offer_request": offer}
                 for sid, label, offer, raw in FIXTURES]
-    controls = '<a href="/qwenwork/connect">Connect QwenWork</a>'
+    controls = '<span>QwenWork not connected</span> · <a href="/qwenwork/connect">Connect QwenWork</a>'
     if api and api.connected():
         rows = conn.execute("SELECT v.id,v.version_no,d.client FROM proposal_versions v JOIN deals d ON d.id=v.deal_id WHERE v.status IN ('draft','checked','blocked') AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=v.deal_id)").fetchall()
         controls = '<span>QwenWork connected · founder approval still required</span>'
@@ -2591,6 +2591,8 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
     try:
         core.load_seed(conn)
         conn.executescript(qwenwork_api.SCHEMA)
+        import qwenwork_runtime
+        conn.executescript(qwenwork_runtime.SCHEMA)
         # Deals whose latest version was rejected before the deal status was
         # settled on reject leave the work queue (history is kept).
         # Historical reconciliation is explicit, never an implicit startup write.
@@ -2605,7 +2607,7 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
     server.qwenwork_api = qwenwork_api.Client(qwenwork_client_id, qwenwork_redirect_uri)
     server.qwenwork_stop = threading.Event()
     server.qwenwork_worker = None
-    if qwenwork_client_id:
+    if qwenwork_client_id or (server.qwenwork_api.connected() and os.environ.get('BIDPILOT_QWENWORK_EVENT_RUNTIME') == '1'):
         server.qwenwork_worker = threading.Thread(target=server.qwenwork_api.worker,
             args=(db_path, server.qwenwork_stop), name='qwenwork-quotes', daemon=True)
         server.qwenwork_worker.start()
