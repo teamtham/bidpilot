@@ -1285,6 +1285,28 @@ def similar_work(conn, deal, versions):
 STATE_STEP_LIMIT = 50
 
 
+def chat_brief_facts(conn, deal_id):
+    """Latest buyer facts from the studio chat linked to a deal (read-only)."""
+    try:
+        rows = conn.execute(
+            "SELECT f.id, f.subject, f.value_json, f.status, f.supersedes FROM inquiry_facts f"
+            " JOIN inquiries i ON i.id=f.inquiry_id WHERE i.deal_id=? ORDER BY f.created_at, f.rowid",
+            (deal_id,)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    gone = {r["supersedes"] for r in rows if r["supersedes"]}
+    latest = {}
+    for r in rows:
+        if r["id"] in gone:
+            continue
+        try:
+            value = json.loads(r["value_json"])
+        except ValueError:
+            continue
+        latest[r["subject"]] = {"subject": r["subject"], "value": value, "status": r["status"]}
+    return list(latest.values())
+
+
 def state(conn):
     panel = capacity_panel(conn)
     current_revision = panel["revision"]
@@ -1434,6 +1456,7 @@ def state(conn):
                        "scope": 'test' if deal_logic.is_test_deal(deal['source'], deal['source_id'], deal['raw_inquiry']) else 'production',
                        "missing_items": (needs_info or {}).get('missing_fields', []),
                        "is_sample": (deal["source_id"] or "").startswith("SAMPLE-"),
+                      "brief_facts": chat_brief_facts(conn, deal["id"]),
                       "is_test": deal_logic.is_test_deal(deal["source"], deal["source_id"],
                                                          deal["raw_inquiry"]),
                       "versions": versions, "offers": offers,
