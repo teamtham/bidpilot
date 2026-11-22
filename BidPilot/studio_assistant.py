@@ -308,6 +308,10 @@ def respond(c, inquiry):
         with c:
             c.execute('INSERT INTO gemini_attempt_events VALUES (?,?,?,?,?,?,?)',
                       (lease, inquiry, seq, revision, stage, category, time.time()))
+        if category not in ('started', 'returned', 'complete'):
+            # One line in server.log per rejection or failure: inquiry, stage and
+            # reason code only (never buyer or model text).
+            print(f'studio assistant {inquiry[:8]} seq {seq}: {stage} {category}', flush=True)
 
     stage = 'input'
     try:

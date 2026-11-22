@@ -65,6 +65,19 @@ class StudioAssistantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unverified_number'):
             chat._check_buyer_text(self.c, self.i, 'S$3,100')
 
+    def test_buyer_may_hear_their_own_business_name(self):
+        """A new buyer whose name matches an older deal can be addressed by it;
+        another client's name the buyer never wrote is still refused."""
+        with self.c:
+            for sid, name in (('old-1', 'Juniper Cafe'), ('old-2', 'Harbour Dental')):
+                self.c.execute("INSERT INTO deals (id, source, source_id, client, raw_inquiry, status, sample_data, created_at)"
+                               " VALUES (?, 'manual', ?, ?, 'x', 'new', 0, 0)", (sid, sid, name))
+        with patch.object(assistant, 'generate', return_value=self.answer()):
+            self.start("Hi, I'm from Juniper Cafe and need two reels")
+        chat._check_buyer_text(self.c, self.i, 'Thanks, Juniper Cafe team!')
+        with self.assertRaisesRegex(ValueError, 'private_information'):
+            chat._check_buyer_text(self.c, self.i, 'Like our Harbour Dental project?')
+
     def test_incomplete_brief_cannot_be_submitted(self):
         fact = {'subject':'videos','value':2,'status':'confirmed'}
         with patch.object(assistant, 'generate', return_value=self.answer(facts=[fact])):

@@ -168,11 +168,15 @@ def _check_buyer_text(c, inquiry, text, allow_scoping_question=False):
     if row['deal_id']:
         deal=c.execute('SELECT client FROM deals WHERE id=?',(row['deal_id'],)).fetchone()
         if deal: client=deal['client']
-    for name in core.other_client_names(c,client):
-        clean=unicodedata.normalize('NFKC',name).casefold().strip()
-        if clean and re.search(r'(?<!\w)'+re.escape(clean)+r'(?!\w)',normalized): raise ValueError('private_information')
     buyer=' '.join(r[0] for r in c.execute("SELECT body FROM inquiry_turns WHERE inquiry_id=? AND sender='buyer'",(inquiry,)))
     buyer=unicodedata.normalize('NFKC',buyer).casefold()
+    for name in core.other_client_names(c,client):
+        clean=unicodedata.normalize('NFKC',name).casefold().strip()
+        # A name the buyer wrote themselves is theirs to hear back (e.g. a new
+        # inquiry from a business that shares a name with an older deal).
+        if clean and re.search(r'(?<!\w)'+re.escape(clean)+r'(?!\w)',normalized) \
+                and not re.search(r'(?<!\w)'+re.escape(clean)+r'(?!\w)',buyer):
+            raise ValueError('private_information')
     # Compare numbers without thousands separators: the buyer's 'S$2,700' allows 2700.
     allowed={n.replace(',','') for n in re.findall(r'\d[\d,]*(?:\.\d+)?',buyer)}
     for i,word in enumerate(('zero','one','two','three','four','five','six','seven','eight','nine','ten')):
