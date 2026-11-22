@@ -4,11 +4,13 @@
 # start_all.sh writes; the owner token stays in ~/.bidpilot/owner_token.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-# QwenWork OpenAPI event runtime: buyer chat/brief/compose run in cloud sessions.
-# Missing OAuth token keeps the server up; the dashboard shows "not connected".
+# QwenWork OpenAPI event runtime: everything after Send my brief (intake,
+# scoping, comparables, drafting) runs in QwenWork cloud sessions. A missing
+# OAuth token keeps the server up.
 export BIDPILOT_QWENWORK_EVENT_RUNTIME=1
-# Buyer chats queue for the QwenWork cloud runner (not the local Gemini adapter).
-export BIDPILOT_STUDIO_ASSISTANT=qwenwork
+# Buyer chat replies come from Gemini (fast, a few seconds). Chats Gemini owns
+# are never queued for QwenWork; set this to qwenwork to hand chat to QwenWork.
+export BIDPILOT_STUDIO_ASSISTANT=gemini
 ORIGIN_FILE="$HOME/.bidpilot/current_chat_origin"
 PY="${BIDPILOT_PYTHON:-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3}"
 ARGS=(-u -B server.py --port 8765
