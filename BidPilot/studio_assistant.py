@@ -127,6 +127,20 @@ def route(c, inquiry):
     return provider
 
 
+_UNAVAILABLE = re.compile(r'billing|quota|RESOURCE_EXHAUSTED|credit|prepa|insufficient|payment', re.I)
+
+
+def model_unavailable(exc):
+    """True when the model provider refuses for billing or quota reasons."""
+    if exc.code == 429:
+        return True
+    try:
+        body = exc.read().decode('utf-8', 'replace')[:4000]
+    except Exception:
+        body = ''
+    return exc.code in (400, 402, 403) and bool(_UNAVAILABLE.search(body))
+
+
 def generate(parts):
     if not os.environ.get('GEMINI_API_KEY'):
         raise ValueError('missing_api_key')
@@ -152,6 +166,8 @@ def generate(parts):
             break
         except HTTPError as exc:
             if attempt or exc.code not in (429, 500, 502, 503, 504):
+                if model_unavailable(exc):
+                    raise ValueError('model_unavailable')
                 raise
             time.sleep(2)
         except URLError:
@@ -410,14 +426,16 @@ def respond(c, inquiry):
                  'invalid_fact_source', 'invalid_fact', 'invalid_turn', 'commercial_reply',
                  'private_information', 'no_new_buyer_evidence', 'invalid_proposal_email',
                  'email_confirmation_not_grounded', 'invalid_reference_cue',
-                 'commitment_requires_founder', 'request_id_conflict'}
+                 'commitment_requires_founder', 'request_id_conflict', 'model_unavailable'}
         category = str(exc) if str(exc) in known else (
             f'transport_http_{exc.code}' if isinstance(exc, HTTPError) else
             'transport_error' if isinstance(exc, OSError) else 'invalid_response')
         diagnostic(stage, category)
         if str(exc) in ('stale_revision', 'stale_reference_update', 'stale_lease'):
             return {'assistant_status': 'busy'}
-        error = 'Studio Assistant could not reply. Your message is saved. Please retry.'
+        error = ('The studio chat is temporarily unavailable. Your message is saved, and the studio'
+                 ' will reply as soon as it is back.' if str(exc) == 'model_unavailable' else
+                 'Studio Assistant could not reply. Your message is saved. Please retry.')
         with c:
             c.execute('UPDATE gemini_chats SET error=? WHERE inquiry_id=? AND lease=?', (error,inquiry,lease))
         diagnostic('status', 'retry')
