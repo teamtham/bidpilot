@@ -103,6 +103,39 @@ def add_message(c, inquiry, data):
         c.commit(); return {'sequence':seq}
     except Exception: c.rollback(); raise
 
+# Required brief fields, in the order the brief card shows them. Keep the
+# patterns in step with FIELDS in _UI_COMMON_JS. Budget is optional by design.
+BRIEF_FIELDS=[('Format',r'format|video_type|project_type|style|platform|channels'),
+              ('Production',r'shoot_or|on_location|client_supplied_footage|production_type|production\.mode|asset_supply'),
+              ('Shoot days',r'shoot_?days|days_on_set'),('Locations',r'location'),
+              ('Videos',r'(^|\.)videos$|original_edits|deliverables|video_count|reel_count'),('Captioned versions',r'caption'),
+              ('Scripting',r'script'),('Revision rounds',r'revision'),('Deadline',r'deadline|final_delivery|due_date'),
+              ('Editing',r'editing|edit_level|edit_style'),('Your budget',r'budget')]
+# Subjects the assistant should use when it fills a missing card field.
+BRIEF_SUBJECTS={'Format':'production.video_format','Production':'production.asset_supply','Shoot days':'production.shoot_days',
+                'Locations':'production.location_requirements','Videos':'production.original_edits',
+                'Captioned versions':'production.caption_requirement','Scripting':'production.script_supply',
+                'Revision rounds':'production.revision_rounds','Deadline':'production.final_delivery_date',
+                'Editing':'production.edit_level'}
+OPTIONAL_FIELDS={'Your budget'}
+
+def brief_missing(facts):
+    """Required fields still empty, or only proposed ('to confirm'), as card labels."""
+    gone={f.get('supersedes') for f in facts if f.get('supersedes')}
+    latest={}
+    for f in facts:
+        if f['id'] not in gone: latest[f['subject']]=f
+    slots=[None]*len(BRIEF_FIELDS)
+    for f in latest.values():
+        i=next((i for i,(_,p) in enumerate(BRIEF_FIELDS) if re.search(p,f['subject'])),None)
+        if i is not None and slots[i] is None: slots[i]=f
+    missing=[]
+    for (name,_),f in zip(BRIEF_FIELDS,slots):
+        if name in OPTIONAL_FIELDS: continue
+        if f is None: missing.append(name)
+        elif f['status']=='proposed': missing.append('Confirm '+name.lower())
+    return missing
+
 def context(c,args):
     inquiry=args['inquiry_id']; row=_get(c,inquiry)
     through=args.get('through_sequence', 2**63-1)
@@ -143,6 +176,9 @@ def _check_buyer_text(c, inquiry, text, allow_scoping_question=False):
     allowed=set(re.findall(r'\d[\d,]*(?:\.\d+)?',buyer))
     for i,word in enumerate(('zero','one','two','three','four','five','six','seven','eight','nine','ten')):
         if re.search(r'(?<!\w)'+word+r'(?!\w)',buyer): allowed.add(str(i))
+    # Count words buyers use instead of digits ("a single story" -> 1 edit).
+    for word,n in (('single','1'),('once','1'),('twice','2'),('double','2'),('both','2')):
+        if re.search(r'(?<!\w)'+word+r'(?!\w)',buyer): allowed.add(n)
     unknown=[n for n in re.findall(r'\d[\d,]*(?:\.\d+)?',normalized) if n not in allowed]
     if unknown:
         neutral=(allow_scoping_question and '?' in text and not re.search(r'(?:s\$|sgd|\$)\s*\d',normalized)
@@ -578,6 +614,20 @@ dl.brief dd.muted{font-weight:400;color:var(--s-mute)}
 dl.brief dd em{display:block;font-style:normal;font-weight:400;font-size:11.5px;color:var(--s-mute)}
 .lock{font-size:12px;color:var(--s-mute);display:flex;gap:8px;align-items:flex-start;margin:0}
 .lock::before{content:"";flex:none;width:10px;height:12px;margin-top:3px;border:2px solid currentColor;border-radius:2px;box-shadow:inset 0 -4px 0 currentColor}
+dl.brief dd.miss{color:#a2620a;font-weight:600}
+dl.brief dd.miss::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#a2620a;margin-right:6px;vertical-align:1px}
+.todo{background:#fbf0dc;border-radius:8px;padding:10px 12px;display:grid;gap:8px;font-size:12.5px}
+.todo b{font-weight:600}.todo .chips{display:flex;flex-wrap:wrap;gap:6px}
+.todo .chip{font:12px var(--ui);padding:4px 10px;border-radius:999px;background:#fff;border:1px solid var(--s-line);color:var(--s-ink);cursor:pointer}
+.todo .chip:hover{border-color:var(--s-brown)}
+.why{font-size:12px;color:var(--s-mute);text-align:center;margin:-4px 0 0}
+.ready{background:#e4f3e7;color:var(--ok);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;margin:0}
+#sendbrief{width:100%}
+#sendbrief.sub,#sendbrief.sub:disabled{background:#e4f3e7;color:var(--ok);border-color:#bfe0c7;opacity:1}
+#sendbrief.sub::before{content:"\2713";font-weight:700}
+.done{display:grid;gap:6px;background:#e4f3e7;border:1px solid #bfe0c7;border-radius:8px;padding:12px}
+.done .tick{color:var(--ok);font-size:14px}.done p{margin:0;font-size:12.5px}
+[hidden]{display:none!important}
 .proposal{display:grid;gap:8px;background:var(--s-tint);border-radius:8px;padding:12px}
 .proposal a{color:var(--s-brown);font-weight:600}
 .resume a{color:var(--s-brown);font-weight:600}
@@ -611,17 +661,28 @@ def _ui_chat(heading, quick, placeholder='Type a message or drop a reference cli
             '<label class="sr" for="text">Your message</label><textarea id="text" rows="1" placeholder="' + placeholder + '"></textarea>'
             '<button class="btn p" id="send">Send</button></form></section>')
 
-_UI_BRIEF = ('<aside class="side"><section class="card" aria-labelledby="briefh"><div class="card-top"><h2 id="briefh">Your brief so far</h2><span class="small muted" id="count">0 of 11</span></div>'
+_UI_BRIEF = ('<aside class="side"><section class="card" aria-labelledby="briefh"><div class="card-top"><h2 id="briefh">Your brief so far</h2><span class="small muted" id="count">0 of 10 required</span></div>'
              '<div class="fill" aria-hidden="true"><i id="fillbar"></i></div><dl class="brief" id="facts"></dl>'
-             '<button class="btn p" type="button" id="sendbrief">Send my brief</button>'
+             '<div class="todo" id="todo" hidden></div><p class="ready" id="ready" hidden>Your brief is complete.</p>'
+             '<button class="btn p" type="button" id="sendbrief" disabled aria-describedby="why">Send my brief</button>'
+             '<p class="why" id="why" hidden></p><div class="done" id="done" hidden role="status"></div>'
              '<p class="lock">Only you and I see your budget. No price is shown until I\'ve reviewed your proposal myself.</p>'
              '<div id="proposal"></div></section>')
 
-_UI_COMMON_JS = r'''
-const FIELDS=[['Format',/format|video_type|project_type|style/],['Production',/shoot_or|on_location|client_supplied_footage|production_type|production\.mode/],['Shoot days',/shoot_?days|days_on_set/],['Locations',/location/],['Videos',/(^|\.)videos$|original_edits|deliverables|video_count/],['Captioned versions',/caption/],['Scripting',/script/],['Revision rounds',/revision/],['Deadline',/deadline|final_delivery|due_date/],['Editing',/editing|edit_level|edit_style/],['Your budget',/budget/]];
+_UI_COMMON_JS_RAW = r'''
+const FIELDS=__BRIEF_FIELDS__.map(([n,p])=>[n,new RegExp(p)]);
 function label(s){s=String(s).split('.').pop().replace(/[_-]+/g,' ');return s.charAt(0).toUpperCase()+s.slice(1)}
 function show(v){if(v===null||v===undefined)return '';if(typeof v==='boolean')return v?'Yes':'No';if(Array.isArray(v))return v.map(show).join(', ');if(typeof v==='object')return Object.entries(v).map(([k,x])=>label(k)+': '+show(x)).join(', ');return String(v)}
-function renderBrief(facts){let gone=new Set(facts.map(f=>f.supersedes).filter(Boolean)),latest=new Map();for(let f of facts)if(!gone.has(f.id))latest.set(f.subject,f);let rows=FIELDS.map(([name])=>({name,fact:null})),extra=[];for(let f of latest.values()){let i=FIELDS.findIndex(([,re])=>re.test(f.subject));if(i>=0&&!rows[i].fact)rows[i].fact=f;else extra.push({name:label(f.subject),fact:f})}let dl=document.querySelector('#facts');dl.replaceChildren();let filled=0;for(let r of rows.concat(extra)){let dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=r.name;if(!r.fact){dd.className='muted';dd.textContent=r.name==='Your budget'?'Not given':'Ask in chat'}else{if(rows.includes(r))filled++;dd.textContent=r.fact.status==='excluded'?'Not needed':show(r.fact.value);if(r.fact.status==='proposed'){let e=document.createElement('em');e.textContent='to confirm';dd.append(e)}}dl.append(dt,dd)}document.querySelector('#count').textContent=filled+' of '+FIELDS.length;document.querySelector('#fillbar').style.width=Math.round(filled/FIELDS.length*100)+'%'}
+function renderBrief(facts){let gone=new Set(facts.map(f=>f.supersedes).filter(Boolean)),latest=new Map();for(let f of facts)if(!gone.has(f.id))latest.set(f.subject,f);let rows=FIELDS.map(([name])=>({name,fact:null})),extra=[];for(let f of latest.values()){let i=FIELDS.findIndex(([,re])=>re.test(f.subject));if(i>=0&&!rows[i].fact)rows[i].fact=f;else extra.push({name:label(f.subject),fact:f})}let dl=document.querySelector('#facts');dl.replaceChildren();let missing=[],req=FIELDS.filter(([n])=>!OPTIONAL.has(n)).length;for(let r of rows.concat(extra)){let dt=document.createElement('dt'),dd=document.createElement('dd'),must=rows.includes(r)&&!OPTIONAL.has(r.name);dt.textContent=r.name;if(!r.fact){if(must){dd.className='miss';dd.textContent='Missing';missing.push(r.name)}else{dd.className='muted';dd.textContent=r.name==='Your budget'?'Optional':'Ask in chat'}}else{dd.textContent=r.fact.status==='excluded'?'Not needed':show(r.fact.value);if(r.fact.status==='proposed'){let e=document.createElement('em');e.textContent='to confirm';dd.append(e);if(must)missing.push('Confirm '+r.name.toLowerCase())}}dl.append(dt,dd)}document.querySelector('#count').textContent=(req-missing.length)+' of '+req+' required';document.querySelector('#fillbar').style.width=Math.round((req-missing.length)/req*100)+'%';return missing}
+const OPTIONAL=new Set(['Your budget']);
+function briefUI(missing,o){o=o||{};let btn=document.querySelector('#sendbrief'),todo=document.querySelector('#todo'),why=document.querySelector('#why'),ready=document.querySelector('#ready'),done=document.querySelector('#done'),card=document.querySelector('#briefh');
+let submitted=!!o.submitted;card.textContent=submitted?'Your submitted brief':'Your brief so far';document.querySelector('.fill').hidden=submitted;document.querySelector('#count').hidden=submitted;
+btn.classList.toggle('sub',submitted);btn.classList.toggle('p',!submitted);
+todo.replaceChildren();todo.hidden=submitted||!missing.length;ready.hidden=true;why.hidden=true;done.hidden=!submitted;
+if(submitted){btn.disabled=true;btn.textContent='Brief submitted';done.replaceChildren();let t=document.createElement('b');t.className='tick';t.textContent='Alex has your brief';let p=document.createElement('p');p.textContent=(o.receipt?'Receipt '+o.receipt.slice(0,8).toUpperCase()+'. ':'')+'You\'ll get a written proposal by email, usually within 1 working day. No price or booking is confirmed yet. Questions or changes? Tell the assistant.';done.append(t,p);return}
+btn.textContent=o.resubmit?'Send my updated brief':'Send my brief';
+if(missing.length){let h=document.createElement('b');h.textContent=missing.length+(missing.length===1?' thing':' things')+' left before you can send:';let w=document.createElement('div');w.className='chips';for(let m of missing){let b=document.createElement('button');b.type='button';b.className='chip';b.textContent=m;b.onclick=()=>{ta.value=(m.startsWith('Confirm ')?'About the '+m.slice(8)+': ':m+': ');grow();ta.focus()};w.append(b)}todo.append(h,w);btn.disabled=true;why.hidden=false;why.textContent='Answer '+(missing.length===1?'this':'these')+' in the chat to unlock.';return}
+btn.disabled=!!o.busy;if(o.busy){why.hidden=false;why.textContent='Wait for the assistant to finish updating your brief.'}else ready.hidden=false}
 function bubble(who,text){let d=document.createElement('div');d.className='m '+who;d.textContent=text;return d}
 function typing(){let d=document.createElement('div');d.className='m bot';d.setAttribute('aria-label','The studio assistant is replying');d.innerHTML='<span class="typing"><i></i><i></i><i></i></span>';return d}
 const ta=document.querySelector('#text');if(ta.clientWidth&&ta.clientWidth<300)ta.placeholder='Message or drop a clip';function grow(){ta.style.height='36px';ta.style.height=Math.min(ta.scrollHeight+2,140)+'px'}ta.addEventListener('input',grow);
@@ -635,19 +696,19 @@ function savedToken(){try{let t=localStorage.getItem(TOKEN_KEY)||'';return /^[A-
 function saveToken(t){try{localStorage.setItem(TOKEN_KEY,t)}catch(e){}}
 function clearToken(){try{localStorage.removeItem(TOKEN_KEY)}catch(e){}}
 '''
+_UI_COMMON_JS = _UI_COMMON_JS_RAW.replace('__BRIEF_FIELDS__', json.dumps([[n,p] for n,p in BRIEF_FIELDS]))
 
 def _start_page():
     return (_ui_head('Start an inquiry') + _ui_chat('Start a private inquiry', ['Social videos for a launch', 'A brand film', 'An interview or event']) + _UI_BRIEF +
             '<p class="small muted resume" id="resumebox" hidden><a id="resume">Continue your private inquiry</a></p></aside></main>'
             '<script>' + _UI_COMMON_JS + r'''
 const turns=document.querySelector('#turns'),msg=document.querySelector('#status'),link=document.querySelector('#resume');
-turns.append(bubble('bot','Hi! What are you making, and where will people watch it? Share a message, a video reference, or both.'));renderBrief([]);
+turns.append(bubble('bot','Hi! What are you making, and where will people watch it? Share a message, a video reference, or both.'));briefUI(renderBrief([]));
 let resuming=false;
 if(new URLSearchParams(location.search).has('new')){clearToken()}
 else{let saved=savedToken();if(saved){resuming=true;msg.textContent='Resuming your conversation…';fetch('/i/'+saved+'/state').then(r=>{if(r.ok){location.replace('/i/'+saved)}else{clearToken();msg.textContent=''}}).catch(()=>{msg.textContent=''}).finally(()=>{resuming=false})}}
 fileIn.onchange=syncChip;
 document.querySelectorAll('[data-quick]').forEach(b=>b.onclick=()=>{ta.value=b.dataset.quick;grow();document.querySelector('#form').requestSubmit()});
-document.querySelector('#sendbrief').onclick=()=>document.querySelector('#form').requestSubmit();
 let token='',busy=false;document.querySelector('#form').onsubmit=async e=>{e.preventDefault();if(busy||resuming)return;let text=ta.value,file=fileIn.files[0];if(!text.trim()&&!file){msg.textContent='Add a message or a video reference.';return}busy=true;document.querySelector('#send').disabled=true;msg.textContent='';if(text.trim())turns.append(bubble('me',text));if(file)turns.append(bubble('me','Reference clip: '+file.name));let t=typing();turns.append(t);scrollEnd();try{if(!token){let r=await fetch('/inquire',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,attachment_first:!!file,request_id:crypto.randomUUID()})});let x=await r.json();if(!r.ok)throw Error(x.error);token=x.token;saveToken(token);link.href='/i/'+token;document.querySelector('#resumebox').hidden=false;link.textContent='Continue your private inquiry (save this link)'}if(file){msg.textContent='Uploading…';let bytes=new Uint8Array(await file.arrayBuffer()),s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode(...bytes.subarray(i,i+32768));let r=await fetch('/i/'+token+'/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:file.name,mime:file.type,data:btoa(s)})});if(!r.ok)throw Error('Upload failed. Use the private link to return and retry.')}location.href='/i/'+token}catch(err){t.remove();busy=false;document.querySelector('#send').disabled=false;msg.textContent=err.message||'Could not start the conversation. Please try again.'}};
 </script></body></html>''')
 
@@ -663,15 +724,15 @@ ni.onclick=()=>{if(Date.now()<niUntil){clearToken();location.href='/inquire?new=
 async function request(url,opts){let r=await fetch(url,opts);let x=await r.json();if(!r.ok)throw Error(x.error||'Request failed');return x}
 function seek(id,time){let v=[...document.querySelectorAll('video')].find(v=>v.dataset.id===id);if(v){v.currentTime=time;v.scrollIntoView({block:'nearest'});v.play().catch(()=>{})}}
 let lastTurns='', respondingToUpdate=false;
-async function refresh(){try{let x=await request(base+'/state');let key=JSON.stringify([x.turns,x.pending,x.assistant_error]);if(key!==lastTurns){lastTurns=key;let turns=document.querySelector('#turns');turns.replaceChildren();if(!x.turns.length)turns.append(bubble('bot','Hi! What are you making, and where will people watch it?'));for(let t of x.turns){let a=bubble(t.sender==='buyer'?'me':'bot',t.body);if(t.references.length){let w=document.createElement('div');w.className='refs';for(let ref of t.references){let b=document.createElement('button');b.type='button';b.textContent='Reference at '+(ref.start||0).toFixed(1)+'s';b.onclick=()=>seek(ref.asset_id,ref.start||0);w.append(b)}a.append(w)}turns.append(a)}if(x.pending&&!x.assistant_error)turns.append(typing());scrollEnd()}renderBrief(x.facts);
+async function refresh(){try{let x=await request(base+'/state');let key=JSON.stringify([x.turns,x.pending,x.assistant_error]);if(key!==lastTurns){lastTurns=key;let turns=document.querySelector('#turns');turns.replaceChildren();if(!x.turns.length)turns.append(bubble('bot','Hi! What are you making, and where will people watch it?'));for(let t of x.turns){let a=bubble(t.sender==='buyer'?'me':'bot',t.body);if(t.references.length){let w=document.createElement('div');w.className='refs';for(let ref of t.references){let b=document.createElement('button');b.type='button';b.textContent='Reference at '+(ref.start||0).toFixed(1)+'s';b.onclick=()=>seek(ref.asset_id,ref.start||0);w.append(b)}a.append(w)}turns.append(a)}if(x.pending&&!x.assistant_error)turns.append(typing());scrollEnd()}let missing=renderBrief(x.facts);
 let card=document.querySelector('#refcard');card.hidden=!(x.assets.length||x.evidence.length);
 let assets=document.querySelector('#assets');if(assets.dataset.ids!==JSON.stringify(x.assets.map(a=>[a.id,a.status]))){assets.dataset.ids=JSON.stringify(x.assets.map(a=>[a.id,a.status]));assets.replaceChildren();for(let a of x.assets){let box=document.createElement('div'),v=document.createElement('video');box.className='asset';v.controls=true;v.preload='metadata';v.dataset.id=a.id;v.src=base+'/asset/'+a.id;let b=document.createElement('button');b.type='button';b.className='btn g';b.textContent='Refer to this moment';b.onclick=()=>{ta.value+=' [Reference at '+v.currentTime.toFixed(1)+' seconds]';ta.dataset.ref=JSON.stringify([{asset_id:a.id,start:v.currentTime,end:v.currentTime}]);grow();ta.focus()};let lbl=document.createElement('p');lbl.textContent=a.filename+' — '+(a.status==='failed'?'Analysis failed; you can still describe this reference.':a.status||'processing');let rm=document.createElement('button');rm.type='button';rm.className='linkbtn';rm.style.color='var(--bad)';rm.textContent='Remove';let armed=false,armTimer=0;rm.onclick=async()=>{if(!armed){armed=true;rm.textContent='Tap again to remove';armTimer=setTimeout(()=>{armed=false;rm.textContent='Remove'},4000);return}clearTimeout(armTimer);rm.disabled=true;try{await request(base+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:a.id})});if(ta.dataset.ref){try{let refs=JSON.parse(ta.dataset.ref).filter(r=>r.asset_id!==a.id);if(refs.length)ta.dataset.ref=JSON.stringify(refs);else delete ta.dataset.ref}catch(e){delete ta.dataset.ref}}await refresh();status.textContent='Reference removed.'}catch(e){rm.disabled=false;armed=false;rm.textContent='Remove';status.textContent=e.message}};box.append(lbl,v,b,rm);assets.append(box)}}
 let ev=document.querySelector('#evidence');ev.replaceChildren();for(let o of x.evidence){let b=document.createElement('button');b.type='button';b.className='t';b.textContent=o.start.toFixed(1)+'s · '+o.body;b.onclick=()=>seek(o.asset_id,o.start);let correct=document.createElement('button');correct.type='button';correct.className='linkbtn';correct.textContent='Correct or discuss';correct.onclick=()=>{ta.dataset.ref=JSON.stringify([{asset_id:o.asset_id,start:o.start,end:o.end,observation_id:o.id}]);ta.value='About this observation: ';grow();ta.focus()};let row=document.createElement('div');row.append(b,correct);ev.append(row)}
 let proposal=document.querySelector('#proposal');proposal.replaceChildren();if(x.proposal_url){let box=document.createElement('div');box.className='proposal';let a=document.createElement('a');a.href=x.proposal_url;a.textContent='View your approved proposal';box.append(a);proposal.append(box)}
 window.briefState=x;
 document.querySelector('#retryassistant').hidden=x.provider!=='gemini'||(!x.assistant_error&&!x.pending);
-document.querySelector('#sendbrief').disabled=!!(x.pending||x.media_update||x.assets.some(a=>['queued','running'].includes(a.status)));
-status.textContent=x.assistant_error||(x.pending?'Waiting for the assistant. You can return to this link.':x.submitted?'Brief received for studio review. You can return to this link.':'');
+briefUI(x.missing||missing,{submitted:x.submitted,receipt:x.last_receipt&&x.last_receipt.id,resubmit:!x.submitted&&!!x.last_receipt,busy:!!(x.pending||x.media_update||x.assets.some(a=>['queued','running'].includes(a.status)))});
+status.textContent=x.assistant_error||(x.pending?'Waiting for the assistant. You can return to this link.':'');
 if((x.media_update||x.review_question)&&!x.assistant_error&&!respondingToUpdate){
   respondingToUpdate=true;
   try{await request(base+'/retry',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refresh()}
@@ -682,7 +743,7 @@ async function send(text,refs){let data={text,request_id:crypto.randomUUID(),ref
 document.querySelector('#form').onsubmit=async e=>{e.preventDefault();if(!ta.value.trim()&&!ta.dataset.ref)return;try{await send(ta.value,JSON.parse(ta.dataset.ref||'[]'));ta.value='';delete ta.dataset.ref;grow();refresh()}catch(e){status.textContent=e.message}};
 document.querySelectorAll('[data-quick]').forEach(b=>b.onclick=async()=>{try{await send(b.dataset.quick);refresh()}catch(e){status.textContent=e.message}});
 document.querySelector('#retryassistant').onclick=async()=>{try{await request(base+'/retry',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refresh()}catch(e){status.textContent=e.message}};
-document.querySelector('#sendbrief').onclick=async()=>{try{let x=window.briefState;let r=await request(base+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:x.revision,sequence:x.processed_sequence})});await refresh();status.textContent='Brief received for studio review. Receipt '+r.receipt_id+'. No price or booking is confirmed.'}catch(e){status.textContent=e.message}};
+document.querySelector('#sendbrief').onclick=async()=>{try{let x=window.briefState;let r=await request(base+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:x.revision,sequence:x.processed_sequence})});await refresh();status.textContent=''}catch(e){status.textContent=e.message==='brief_incomplete'?'A few brief items are still missing. Answer them in the chat first.':e.message}};
 fileIn.onchange=async()=>{let f=fileIn.files[0];if(!f)return;syncChip();status.textContent='Uploading…';let bytes=new Uint8Array(await f.arrayBuffer()),s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode(...bytes.subarray(i,i+32768));try{await request(base+'/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,mime:f.type,data:btoa(s)})});fileIn.value='';syncChip();status.textContent='';refresh()}catch(e){status.textContent=e.message}};refresh();setInterval(()=>{let x=window.briefState;if(x&&(x.provider==='qwenwork'||x.submitted||x.media_update||x.assets.some(a=>['queued','running'].includes(a.status))))refresh()},5000);
 </script></body></html>''')
 
@@ -707,6 +768,10 @@ def dispatch_get(h,path):
         result['submitted'] = bool(h.conn.execute(
             'SELECT 1 FROM studio_submissions WHERE inquiry_id=? AND revision=? AND sequence=?',
             (row['id'], result['revision'], result['processed_sequence'])).fetchone())
+        result['missing'] = brief_missing(result['facts'])
+        last = h.conn.execute('SELECT id,created_at FROM studio_submissions WHERE inquiry_id=? ORDER BY created_at DESC LIMIT 1',
+                              (row['id'],)).fetchone()
+        result['last_receipt'] = dict(last) if last else None
         result['review_question'] = (provider == 'gemini' and result['submitted'] and bool(
             studio_assistant.decline_followup(h.conn, row['id'], result['revision'])))
         result.pop('pricing_history',None)
@@ -741,6 +806,7 @@ def dispatch_post(h,path):
             elif action=='upload': result=upload(h.conn,row['id'],data)
             elif action=='remove': result=remove_reference(h.conn,row['id'],data)
             elif action=='submit':
+                if brief_missing(context(h.conn,{'inquiry_id':row['id']})['facts']): raise ValueError('brief_incomplete')
                 result=studio_assistant.submit_brief(h.conn,row['id'],data['revision'],data['sequence'])
             else: result={}
         inquiry=result.get('inquiry_id') if path=='/inquire' else row['id']
