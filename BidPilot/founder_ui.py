@@ -438,7 +438,6 @@ function checks(d){
 function draftText(d){if(S.drafts[d.id]!=null)return S.drafts[d.id];if(d.phase==='info')return d.question||'';return d.v?d.v.draft:''}
 function draftPanel(d){
  return '<section class="panel"><h3><span>'+(d.phase==='info'?'Question for the client':'Draft message')+'</span><span class="note" style="font-weight:400">Click to edit</span></h3><textarea id="draft" aria-label="Draft message">'+esc(draftText(d))+'</textarea>'
- +(d.est&&d.est.lowest?'<div class="row" style="margin-top:6px"><button class="link note" data-act="leak" title="Demo only">Demo: add your minimum price to the draft</button></div>':'')
  +'<div id="checkpanel">'+checks(d)+'</div></section>'}
 function coll(key,title,body){var o=S.open[key];return '<div class="col"><button data-act="toggle" data-key="'+key+'" aria-expanded="'+(!!o)+'"><span>'+title+'</span><span>'+(o?'−':'+')+'</span></button>'+(o?'<div class="body">'+body+'</div>':'')+'</div>'}
 function briefHtml(d){return '<table><tbody>'+d.brief.map(function(r){return '<tr><th scope="row">'+r[0]+'</th><td>'+(r[1]==null?'<span class="miss">Missing</span>':esc(r[1]))+'</td></tr>'}).join('')+'</tbody></table>'}
@@ -673,7 +672,6 @@ document.addEventListener('click',async function(e){
    if(S.prev&&S.prev.opt===b.dataset.opt){S.prev.data=r.ok?r:{ok:false,fits:false,error:r.message||'This option no longer fits your calendar.',weeks:[]};render()}break;
   case 'closePrev':S.prev=null;render();break;
   case 'sim':S.sim[d.id]=(S.sim[d.id]||0)+1;render();break;
-  case 'leak':liveDraft(d);S.drafts[d.id]=draftText(d)+' Our minimum is '+money(d.est.lowest,1)+'.';delete S.check[d.id];render();break;
   case 'clean':S.drafts[d.id]=cleanDraft(d);delete S.check[d.id];render();break;
   case 'approve':
    if(d.phase==='info'){liveDraft(d);S.confirm={deal:d.id,kind:'approve'};render();break}
