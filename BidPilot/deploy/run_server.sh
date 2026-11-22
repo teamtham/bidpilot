@@ -12,5 +12,7 @@ ARGS=(-u -B server.py --port 8765
 if [[ -s "$ORIGIN_FILE" ]]; then
   ARGS+=(--public-origin "$(tr -d '[:space:]' < "$ORIGIN_FILE")")
 fi
+# Write every link the owner needs, and announce them, each time it starts.
+/bin/bash "$HERE/deploy/write_links.sh" || true
 cd "$HERE"
 exec "$PY" "${ARGS[@]}"

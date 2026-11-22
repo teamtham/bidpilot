@@ -36,6 +36,7 @@ else
 fi
 changed=0; [[ "$new_origin" != "$origin" ]] && changed=1
 printf '%s\n' "$new_origin" > "$ORIGIN_FILE"
+BIDPILOT_NOTIFY=0 /bin/bash "$HERE/deploy/write_links.sh"   # refresh links with the new address now
 
 # 2. QwenWork callback tunnel (fixed ngrok address, callback path only).
 if pgrep -f "ngrok http 8765" >/dev/null; then
@@ -75,4 +76,5 @@ echo " Iframe URL:     $new_origin/inquire"
 [[ $changed == 1 ]] && echo " (NEW address: update the Hashmeta request-a-quote iframe)"
 echo " Owner link:     http://127.0.0.1:8765/?owner=$(tr -d '[:space:]' < "$STATE/owner_token" 2>/dev/null)"
 echo " Logs:           $LOGS"
+echo " All links:      ~/.bidpilot/links.html (and links.txt, Desktop copy)"
 echo "================================================================"
