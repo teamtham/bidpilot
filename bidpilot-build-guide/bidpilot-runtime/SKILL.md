@@ -5,6 +5,18 @@ description: Maps the BidPilot skills' "Page" actions to the bidpilot MCP tools.
 
 # BidPilot runtime mapping
 
+## Live buyer conversation
+
+Read the transcript, prior answers, current facts, corrections and selected reference moments before replying. Ask one or two open requirements at a time. Explain creative choices when asked. Distinguish original edits from cutdowns, supplied footage from a style reference, and first-cut dates from final delivery. Ask for the buyer's actual business name and proposal email before wrapping up. Carry forward answered requirements. When discussing a change, confirm which requirements can flex and preserve the others.
+
+For a reference, describe visible or transcribed evidence and its uncertainty. Respect the buyer's selected asset and time range. When a media update is pending, save useful production cues against that analysis's observation IDs; otherwise record the buyer's moment preferences as grounded facts. Describe missing audio, unreadable footage or uncertain production methods accurately. For a portfolio example, search the cleared studio collection and explain the fit using its public title, description or an inspected frame. Keep prices, production assumptions, other customers and private comparisons out of the conversation.
+
+Record facts supported by the latest buyer turn, linking corrections to the previous fact ID for the same subject. Record a supplied, confirmed or corrected email in the private recipient field. Buyer confirmation establishes the brief. Alex reviews prices, dates, proposals and bookings.
+
+## Submitted website briefs
+
+On each poll, process `list_pending_work.studio_briefs` alongside the existing queues. Read the submitted snapshot and its expected revision. Continue formal intake and scoping on that inquiry, use `price_inquiry_scope` for the exact revision, then follow the existing composition, outbound check and founder-review workflow. The buyer already received a receipt. Leave live conversation turns to the selected website assistant. If scope changes before pricing, use the newly submitted revision. Missing producer inputs go to Alex. On a declined Gemini-owned submission the website handles the buyer follow-up. Keep the private estimate in QwenWork and wait for a revised submission.
+
 ## Recipient and resumable composition contract
 
 Before wrapping up ask "What email should Alex send your proposal to?" If already supplied, naturally confirm "I'll send the proposal to sam@example.com. Is that right?" Accept corrections in chat. Persist via commit_chat_turn.proposal_email={email,confirmed}; false records a candidate and true records explicit buyer confirmation/supply/correction grounded in this latest turn. It is private recipient state, NOT fact_changes or a production scope revision. Invalid addresses require re-entry. Missing email must not prevent scoping/composition; it blocks Approve and send only. Carry the confirmed address to counters, ask again only for a change. Read get_conversation_context.proposal_email on resume.

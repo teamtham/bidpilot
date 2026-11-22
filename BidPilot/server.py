@@ -243,6 +243,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
                 return self.send_html(founder_page(self.conn))
+            if path == "/submitted-briefs":
+                if not self.owner_ok():
+                    return self.forbidden("owner token required")
+                return self.send_html(submitted_briefs_page(self.conn))
             if path == "/api/state":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
@@ -2410,12 +2414,75 @@ function renderCalendar() {
 """
 
 
+def submitted_briefs_page(conn):
+    """Read immutable receipts, never reconstruct a submitted scope from live chat."""
+    def _esc(value):
+        return html.escape('' if value is None else str(value), quote=True)
+
+    cards = []
+    rows = conn.execute(
+        'SELECT s.*,i.revision AS current_revision,i.processed_seq AS current_sequence '
+        'FROM studio_submissions s JOIN inquiries i ON i.id=s.inquiry_id '
+        'WHERE i.revoked=0 ORDER BY s.created_at DESC,s.rowid DESC').fetchall()
+    for row in rows:
+        snapshot = db.uj(row['snapshot_json']) or {}
+        turns = snapshot.get('turns', [])
+        assets = {r['id']: r for r in snapshot.get('references', [])}
+        later = row['current_revision'] != row['revision'] or row['current_sequence'] != row['sequence'] or conn.execute(
+            "SELECT 1 FROM inquiry_turns WHERE inquiry_id=? AND sender='buyer' AND seq>?",
+            (row['inquiry_id'], row['sequence'])).fetchone()
+        body = '<p class="hint">Immutable submitted revision ' + _esc(row['revision']) + '. ' + (
+            'Later buyer changes exist; this receipt is unchanged.' if later else 'No later buyer changes.') + '</p>'
+        body += '<h3>Buyer preferences and sources</h3>'
+        for turn in turns:
+            if turn.get('sender') != 'buyer':
+                continue
+            body += '<section class="panel"><h4>Buyer turn ' + _esc(turn['seq']) + '</h4><p style="white-space:pre-wrap;overflow-wrap:anywhere">' + _esc(turn.get('body', '')) + '</p>'
+            for ref in turn.get('references', []):
+                asset = assets.get(ref.get('asset_id'), {})
+                body += '<p>Selected reference: ' + _esc(asset.get('filename', 'Reference unavailable'))
+                if 'start' in ref:
+                    body += ' at ' + _esc(ref['start']) + ' seconds'
+                if 'end' in ref:
+                    body += ' through ' + _esc(ref['end']) + ' seconds'
+                body += '. ' + ('Observation source: ' + _esc(ref['observation_id']) if ref.get('observation_id') else 'Buyer-selected timestamp; no observation linkage supplied.') + '</p>'
+            body += '</section>'
+        facts = snapshot.get('facts', [])
+        replaced = {f.get('supersedes') for f in facts if f.get('supersedes')}
+        body += '<h3>Structured facts and corrections</h3>'
+        if not facts:
+            body += '<p>No structured facts captured. Buyer text above remains source evidence, not verified extraction.</p>'
+        for fact in facts:
+            body += '<p><b>' + _esc(fact.get('subject', '')) + '</b>: ' + _esc(json.dumps(fact.get('value'), ensure_ascii=False)) + ' (' + _esc(fact.get('status', '')) + '). Source buyer turn ' + _esc(fact.get('source_seq', '')) + '. Fact ' + _esc(fact.get('id', ''))
+            if fact.get('id') in replaced:
+                body += ' [superseded]'
+            if fact.get('supersedes'):
+                body += '; replaces ' + _esc(fact['supersedes'])
+            body += '</p>'
+        body += '<h3>Analyzed cue evidence</h3><p class="hint">Machine/agent observations are not buyer confirmation or a production commitment.</p>'
+        if 'reference_evidence' not in snapshot:
+            body += '<p>Legacy receipt: analyzed evidence was not frozen at submission. Current observations are intentionally not substituted.</p>'
+        for evidence in snapshot.get('reference_evidence', []):
+            asset = assets.get(evidence.get('asset_id'), {})
+            body += '<h4>' + _esc(asset.get('filename', 'Reference')) + '</h4>'
+            observations = evidence.get('observations', [])
+            for cue in observations:
+                if cue.get('kind') != 'production_cue':
+                    continue
+                body += '<section class="panel"><p>' + _esc(cue.get('body', '')) + '</p><p>Time: ' + _esc(cue.get('start')) + ' through ' + _esc(cue.get('end')) + ' seconds. Cue: ' + _esc(cue.get('id', '')) + '; source observation: ' + _esc(cue.get('supersedes', '')) + '</p><p>Method: ' + _esc(cue.get('method', '')) + '. Uncertainty: ' + _esc(cue.get('uncertainty', '')) + '</p></section>'
+            if not any(o.get('kind') == 'production_cue' for o in observations):
+                body += '<p>No analyzed production cues captured.</p>'
+        cards.append('<article class="panel"><h2>Submitted brief</h2>' + body + '</article>')
+    return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Submitted briefs</title><style>' + _DESIGN_BASE + '</style></head><body><header><a href="/dashboard">Founder dashboard</a><h1>Submitted briefs</h1></header><main style="max-width:1000px;margin:auto;padding:24px"><p>Private studio review. Receipt storage does not notify Alex or confirm a booking.</p>' + (''.join(cards) or '<p>No submitted briefs yet.</p>') + '</main></body></html>'
+
+
 def founder_page(conn):
     """The founder dashboard (wireframe v5 build, see founder_ui.py)."""
     import founder_ui
     fixtures = [{"source_id": sid, "label": label, "raw": raw, "offer_request": offer}
                 for sid, label, offer, raw in FIXTURES]
-    return founder_ui.page(SAMPLE_BADGE, fixtures)
+    return founder_ui.page(SAMPLE_BADGE, fixtures).replace(
+        '<body>', '<body><nav aria-label="Submitted briefs" style="padding:8px 24px;background:var(--surface);border-bottom:1px solid var(--border)"><a href="/submitted-briefs">Review submitted briefs, buyer video moments and corrections</a></nav>', 1)
 
 
 class StudioServer(ThreadingHTTPServer):
@@ -2495,6 +2562,8 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
 
 
 def main():
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / '.env', override=False)
     parser = argparse.ArgumentParser(description="Run the loopback-only BidPilot dashboard.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--db", type=Path, default=DB_PATH)

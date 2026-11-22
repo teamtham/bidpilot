@@ -272,8 +272,10 @@ class Stage9BrowserTests(unittest.TestCase):
                 r.method == "POST" and r.url.endswith("/accept")) else None)
             # click the rendered accept button on the phased-delivery card
             phased = page.locator(".opt", has_text="Phased")
-            phased.locator("input[type='radio']").check(timeout=10000)
-            page.get_by_role('button', name='Accept this proposal', exact=True).click(timeout=10000)
+            # The whole visible option card is the label for its hidden native radio.
+            phased.click(timeout=10000)
+            self.assertTrue(phased.locator("input[type='radio']").is_checked())
+            page.get_by_role('button', name='Accept phased', exact=True).click(timeout=10000)
             page.wait_for_timeout(900)  # accept triggers a reload after 800ms
             # no native navigation; the JSON POST is what fired
             self.assertEqual(accept_posts, [url_before + "/accept"])

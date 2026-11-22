@@ -10,6 +10,7 @@ __pycache__/
 node_modules/
 .env
 .env.*
+!.env.example
 
 # Local studio credentials, media and optional Python runtime
 *.db.media/

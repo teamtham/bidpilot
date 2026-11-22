@@ -17,7 +17,7 @@ from test_mcp import STUDIO_TOOL_NAMES
 REPO = Path(__file__).resolve().parent.parent
 BIDPILOT_CONFIG = REPO / "qwenwork-bidpilot-mcp.json"
 BRIDGE_CONFIG = REPO / "qwenwork-mcp.json"
-CHECKOUT_ROOT = "/Users/teamtham/hackathon"
+CHECKOUT_ROOT = "/Users/teamtham/idea"
 
 BIDPILOT_TOOLS = {
     *STUDIO_TOOL_NAMES,
