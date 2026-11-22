@@ -191,7 +191,11 @@ def _serve(handler, asset_id, private=False):
     row = handler.conn.execute("SELECT mime,content,shared FROM portfolio_assets WHERE id=?", (asset_id,)).fetchone()
     if not row or not (row["shared"] or private):
         return handler.not_found()
-    content = row["content"]
+    send_bytes(handler, row["content"], row["mime"])
+
+
+def send_bytes(handler, content, mime, cache="private, no-store"):
+    """Send media bytes with single-range support (Safari needs ranges for video)."""
     size = len(content)
     start, end = 0, size-1
     requested = handler.headers.get("Range")
@@ -212,9 +216,9 @@ def _serve(handler, asset_id, private=False):
             handler.end_headers()
             return
     handler.send_response(206 if requested else 200)
-    handler.send_header("Content-Type", row["mime"])
+    handler.send_header("Content-Type", mime)
     handler.send_header("X-Content-Type-Options", "nosniff")
-    handler.send_header("Cache-Control", "private, no-store")
+    handler.send_header("Cache-Control", cache)
     handler.send_header("Accept-Ranges", "bytes")
     handler.send_header("Content-Length", str(end-start+1))
     if requested:

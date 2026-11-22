@@ -16,7 +16,8 @@ import sys
 import threading
 import time
 import urllib.parse
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -233,6 +234,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/p/"):
                 token = path[3:].strip("/")
                 return self.client_page(token)
+            if path.startswith("/stock/"):
+                return self.stock_media(path[7:])
             if path.startswith("/preview/"):
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
@@ -597,6 +600,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.not_found()
         return self.send_html(render_client_html(self.conn, version, preview=False))
 
+    def stock_media(self, name):
+        """Public stock footage used on client proposal pages (fixed allow-list)."""
+        if name not in STOCK_MEDIA:
+            return self.not_found()
+        content = (STOCK_DIR / name).read_bytes()
+        return portfolio.send_bytes(self, content, STOCK_MEDIA[name], cache="public, max-age=86400")
+
     def preview_page(self, version_id):
         """Owner-only: exactly what the client will see, before approval."""
         version = conn_version(self.conn, version_id)
@@ -671,19 +681,77 @@ def option_label(kind, terms=None):
 
 
 PROPOSAL_STYLE = """
-:root{color-scheme:light;--s-paper:#faf7f3;--s-ink:#2a1f1a;--s-mute:#7a6c63;--s-line:#e4dcd3;--s-brown:#7b4b2f;--s-tint:#f1e9e1;--display:'Newsreader','Iowan Old Style',Georgia,serif;--ui:'Instrument Sans','Helvetica Neue',Arial,sans-serif}
+:root{color-scheme:light;--s-paper:#faf7f3;--s-ink:#2a1f1a;--s-mute:#7a6c63;--s-line:#e4dcd3;--s-brown:#7b4b2f;--s-tint:#f1e9e1;--s-dark:#3a2a21;--ok:#2c7a3f;--warn:#a2620a;--display:'Newsreader','Iowan Old Style',Georgia,serif;--ui:'Instrument Sans','Helvetica Neue',Arial,sans-serif}
 *{box-sizing:border-box}body{margin:0;background:var(--s-paper);color:var(--s-ink);font:15px/1.5 var(--ui);-webkit-font-smoothing:antialiased}
 .site-top{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;border-bottom:1px solid var(--s-line);gap:16px;flex-wrap:wrap}.brand{font:600 19px var(--display)}
-.site-body{padding:28px;display:grid;gap:26px;max-width:1320px;margin:auto}.hero2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:28px;align-items:start}.narrative,.references{display:grid;gap:14px;min-width:0}
-h3{font:500 30px/1.1 var(--display);margin:0;text-wrap:balance}h4{font:500 20px var(--display);margin:0}.lede{color:var(--s-mute);max-width:58ch;margin:0}.muted{color:var(--s-mute)}.small,figcaption{font-size:12.5px}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.row form{margin:0}
-.btn{display:inline-flex;align-items:center;gap:8px;border-radius:6px;padding:10px 16px;font:600 13.5px var(--ui);border:1px solid transparent;cursor:pointer;white-space:nowrap}.btn.p{background:var(--s-brown);color:#fff}.btn.g{border-color:var(--s-line);color:var(--s-ink);background:#fff}button:disabled{opacity:.45;cursor:not-allowed}
-.opt{border:1px solid var(--s-line);border-radius:10px;padding:16px;background:#fff;display:grid;gap:10px;position:relative;cursor:pointer;align-content:start;min-width:0}.opt:has(input:checked){border:2px solid var(--s-brown);box-shadow:0 0 0 4px var(--s-tint)}.opt input{position:absolute;right:16px;top:16px;accent-color:var(--s-brown)}.opt h5{margin:0;font:600 15px var(--ui);padding-right:16px}.price{font:500 26px var(--display);font-variant-numeric:tabular-nums}.tag{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--s-tint);color:var(--s-brown);justify-self:start}
-.optgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.narrative .optgrid{grid-template-columns:1fr}.ticks{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:13px}.ticks li{display:flex;gap:8px}.ticks li:before{content:'';flex:none;width:12px;height:7px;margin-top:5px;border-left:2px solid var(--s-brown);border-bottom:2px solid var(--s-brown);transform:rotate(-45deg)}
-.replacement{background:var(--s-tint);border-radius:8px;padding:10px 14px;font-size:13px}figure{margin:0;display:grid;gap:6px}.reference-media{aspect-ratio:16/9;border-radius:6px;overflow:hidden;background:var(--s-tint)}.reference-media img,.reference-media video{width:100%;height:100%;object-fit:cover}.reference-empty{aspect-ratio:16/9;border:1px dashed var(--s-line);border-radius:6px;display:grid;place-items:center;padding:24px}figcaption{color:var(--s-mute)}
-.rc{display:grid;gap:12px;border:1px solid var(--s-line);border-radius:10px;padding:16px;background:#fff}.ctl{display:flex;flex-wrap:wrap;gap:12px}.rc-field{display:grid;gap:4px}.rc input,.rc textarea{width:100%;font:13.5px var(--ui);color:var(--s-ink);border:1px solid var(--s-line);border-radius:6px;padding:8px 10px}.rc textarea{min-height:100px}.rc button{border:0;border-radius:6px;padding:10px 16px;background:var(--s-brown);color:#fff}#msg:empty{display:none}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--s-brown);outline-offset:3px}
-.option-heading{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.option-heading h5{font:600 15px var(--ui)}body[data-proposal-design=initial] .opt input{position:absolute;opacity:0;width:1px;height:1px}body[data-proposal-design=initial] .opt:has(input:checked){border:1px solid var(--s-line);box-shadow:none}.fit{font-size:12.5px;font-weight:600}.fit.ok{color:#2c7a3f}.fit.over{color:#a2620a}.chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--s-tint)}.budget{font-size:13px;padding:6px 12px}.heading-row{justify-content:space-between}.still-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.still{aspect-ratio:9/16;overflow:hidden;border-radius:6px;background:var(--s-tint)}.still img{width:100%;height:100%;object-fit:cover}.unavailable{display:grid;place-items:center;text-align:center;color:var(--s-mute);font-size:12px;padding:12px}.gantt{display:grid;gap:6px;font-size:12px;padding-left:16px}.g-row{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center}.g-bar{height:14px;background:var(--s-tint);border-radius:3px;position:relative}.g-bar i{position:absolute;top:0;bottom:0;background:var(--s-brown);border-radius:3px;left:90%;width:5%}.unscheduled{height:auto;min-height:14px;background:transparent;color:var(--s-mute)}
-@media(max-width:820px){.hero2,.optgrid{grid-template-columns:1fr}.site-body,.site-top{padding-left:16px;padding-right:16px}.btn{white-space:normal}.ctl{display:grid;grid-template-columns:1fr} }
+.site-body{padding:28px;display:grid;gap:26px;max-width:1240px;margin:auto}.hero2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:28px;align-items:center}.hero2.top{align-items:start}.col{display:grid;gap:14px;min-width:0;align-content:start}
+h3{font:500 30px/1.1 var(--display);margin:0;text-wrap:balance}h4{font:500 20px var(--display);margin:0}h5{margin:0;font:600 15px var(--ui)}.lede{color:var(--s-mute);max-width:58ch;margin:0}.muted{color:var(--s-mute)}.small{font-size:12.5px}figcaption{font-size:12px;color:var(--s-mute)}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.row form{margin:0}.between{justify-content:space-between}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:6px;padding:10px 16px;font:600 13.5px var(--ui);border:1px solid transparent;cursor:pointer;white-space:nowrap}.btn.p{background:var(--s-brown);color:#fff}.btn.g{border-color:var(--s-line);color:var(--s-ink);background:#fff}button.btn:hover{filter:brightness(1.08)}button.btn.g:hover{background:#f6f2ee}button:disabled,button:disabled:hover{opacity:.45;cursor:not-allowed;filter:none}
+.chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--s-tint);color:var(--s-ink)}.chip.budget{font-size:13px;padding:6px 12px}.tag{justify-self:start;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--s-tint);color:var(--s-brown)}
+.banner{background:var(--s-tint);border-radius:8px;padding:10px 14px;font-size:13px;margin:0}.replacement{background:var(--s-tint);border-radius:8px;padding:10px 14px;font-size:13px}
+.opt{border:1px solid var(--s-line);border-radius:10px;padding:16px;background:#fff;display:grid;gap:10px;position:relative;align-content:start;min-width:0}.optgrid .opt{cursor:pointer}.optgrid .opt:hover{border-color:var(--s-brown)}.opt>input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.optgrid .opt:has(input:checked){border:2px solid var(--s-brown);box-shadow:0 0 0 4px var(--s-tint);padding:15px}.opt:has(input:focus-visible){outline:2px solid var(--s-brown);outline-offset:3px}.opt:has(input:disabled){cursor:default}
+.opt-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.price{font:500 26px var(--display);font-variant-numeric:tabular-nums}.fit{font-size:12.5px;font-weight:600}.fit.ok{color:var(--ok)}.fit.over{color:var(--warn)}
+.optgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.ticks{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:13px}.ticks li{display:flex;gap:8px}.ticks li:before{content:'';flex:none;width:12px;height:7px;margin-top:5px;border-left:2px solid var(--s-brown);border-bottom:2px solid var(--s-brown);transform:rotate(-45deg)}
+.gantt{display:grid;gap:6px;font-size:12px}.g-row{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center}.g-bar{height:14px;background:var(--s-tint);border-radius:3px;position:relative}.g-bar i{position:absolute;top:0;bottom:0;background:var(--s-brown);border-radius:3px}.g-bar i.lite{background:#b98b6c}.g-axis{display:flex;justify-content:space-between}
+.story{display:grid;gap:6px}.story h4{font-size:18px}
+.media{position:relative;aspect-ratio:16/9;max-width:100%;border-radius:6px;overflow:hidden;color:#fff;isolation:isolate;background:linear-gradient(180deg,#1f1611,#3d2a1f)}.media.reel{aspect-ratio:9/16}.media.photo{aspect-ratio:4/3}
+.media>video,.media>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1;background:#1d1714}
+.lb{position:absolute;left:0;right:0;height:9%;background:#000;opacity:.85;z-index:1}.lb.t{top:0}.lb.b{bottom:0}
+.play{position:absolute;inset:0;margin:auto;width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.9);display:grid;place-items:center;z-index:1;pointer-events:none}.play::after{content:'';width:0;height:0;border-left:15px solid #2a1f1a;border-block:9px solid transparent;margin-left:4px}
+.media.playing .play{opacity:0;transition:opacity .2s}.media.playing:hover .play{opacity:1}.media.playing .play::after{width:12px;height:16px;border:0;border-left:4px solid #2a1f1a;border-right:4px solid #2a1f1a;margin:0}
+.tc{position:absolute;left:10px;bottom:calc(9% + 6px);font:600 11px var(--ui);font-variant-numeric:tabular-nums;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:3px;z-index:1}
+.shot{position:absolute;right:10px;top:calc(9% + 6px);max-width:70%;font-size:11px;line-height:1.3;background:rgba(0,0,0,.55);padding:3px 7px;border-radius:3px;text-align:right;z-index:1}.media.photo .shot,.media.reel .shot{top:8px}
+.scrub{position:absolute;left:10px;right:10px;bottom:calc(9% - 10px);height:3px;background:rgba(255,255,255,.3);border-radius:2px;z-index:1}.scrub i{display:block;height:100%;width:0;background:#fff;border-radius:2px}
+.media[data-play]{cursor:pointer}.media[data-play]:focus-visible{outline:2px solid var(--s-brown);outline-offset:3px}
+.strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}figure{margin:0;display:grid;gap:6px}
+.formpeek{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;border:1px solid var(--s-line);border-radius:10px;padding:16px;background:#fff;margin:0}.formpeek label{display:grid;gap:4px;font-size:12.5px;color:var(--s-mute)}.formpeek .wide{grid-column:1/-1}.formpeek input,.formpeek textarea{font:13.5px var(--ui);color:var(--s-ink);border:1px solid var(--s-line);border-radius:6px;padding:8px 10px;background:#fff;width:100%}.formpeek textarea{min-height:72px;resize:vertical}.formpeek p{margin:0}
+.booked{display:grid;gap:14px;max-width:560px}.booked .media{max-width:560px}
+.library{border-top:1px solid var(--s-line);padding-top:22px;max-width:760px}.library>*{margin-bottom:10px!important}.library h2{font:500 22px var(--display);margin:0}.library p{margin:0;color:var(--s-mute)}.library label{font-size:12.5px;color:var(--s-mute);margin-right:6px}.library select,.library input{font:13.5px var(--ui);color:var(--s-ink);border:1px solid var(--s-line);border-radius:6px;padding:7px 10px;background:#fff;margin-right:10px}.library form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.library button{font:600 13px var(--ui);border-radius:6px;padding:8px 14px;border:1px solid var(--s-line);background:#fff;color:var(--s-ink);cursor:pointer}
+#msg{margin:0;font-size:13px}#msg:empty{display:none}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--s-brown);outline-offset:3px}
+@media(max-width:820px){.hero2,.optgrid,.formpeek{grid-template-columns:1fr}.site-body,.site-top{padding-left:16px;padding-right:16px}.btn{white-space:normal}h3{font-size:26px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
 """
+
+# Stock footage (Pexels, free licence) shown where the wireframe has media
+# and no sharing-cleared portfolio piece was picked for this proposal.
+STOCK_DIR = Path(__file__).with_name("stock")
+STUDIO_TZ = ZoneInfo("Asia/Singapore")
+STOCK_MEDIA = {name: "video/mp4" for name in (
+    "coffee.mp4", "bakery.mp4", "vertical.mp4", "espresso.mp4", "street.mp4", "bts.mp4")}
+
+
+def _media_html(src, mime="video/mp4", shot="", kind="", playable=True, alt=""):
+    """Wireframe media frame: letterbox, label, play button, scrubber, timecode."""
+    src = _esc(src)
+    if mime.startswith("image/"):
+        inner = f'<img src="{src}" alt="{_esc(alt or shot)}">'
+        playable = False
+    else:
+        start = "#t=0.5" if playable else "#t=2"
+        inner = (f'<video src="{src}{start}" playsinline preload="{"metadata" if playable else "auto"}"'
+                 f'{"" if playable else " muted"} aria-hidden="true"></video>')
+    label = f'<span class="shot">{_esc(shot)}</span>' if shot else ""
+    if not playable:
+        return f'<div class="media {kind}">{inner}{label}</div>'
+    letterbox = '' if kind else '<span class="lb t"></span><span class="lb b"></span>'
+    return (f'<div class="media {kind}" data-play role="button" tabindex="0" aria-label="Play video">'
+            f'{inner}{letterbox}{label}<span class="play"></span>'
+            f'<span class="scrub"><i></i></span><span class="tc">00:00</span></div>')
+
+
+def _client_label(label, counter):
+    """Client-facing wording from the wireframe: cards lead with what the client keeps."""
+    if not counter:
+        return label
+    if label.startswith("Keep the "):
+        return "Keeps your " + label[len("Keep the "):]
+    if label.startswith("Keep all "):
+        return "Keeps all " + label[len("Keep all "):]
+    return label
+
+
+def _plural(n, one, many=None):
+    return f"{n} {one if n == 1 else (many or one + 's')}"
 
 
 def render_client_html(conn, version, preview=False, preview_ids=None):
@@ -709,203 +777,248 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
             " AND direction='acceptance'", (version["id"],)).fetchone()
         if accept_row and db.uj(accept_row["option_ids_json"]):
             accepted = db.uj(accept_row["option_ids_json"])[0]
-    cards = []
-    for row in option_rows:
-        t = db.uj(row["public_terms_json"])
-        phases = "".join(
-            f"<li>Phase {i + 1}: {p['deliverables']} videos by {p['deadline']}</li>"
-            for i, p in enumerate(t.get("phases") or []))
-        phase_html = f"<ul class='phases'>{phases}</ul>" if phases else ""
-        marks = []
-        if row["id"] == selected and not accepted:
-            marks.append("<span class='chip'>Alex's suggestion</span>")
-        if row["id"] == accepted:
-            marks.append("<span class='chip ok'>Your choice</span>")
-        if preview:
-            button = "<button type='button' disabled>Preview only — not yet released</button>"
-        elif accepted:
-            button = ("<button type='button' disabled>Accept this option</button>"
-                      if row["id"] != accepted else
-                      ("<button type='button' disabled>Booking confirmed</button>"
-                       if version["status"] == "confirmed" else
-                       "<button type='button' disabled>Accepted — awaiting Alex</button>"))
-        else:
-            button = ("<form method='post' onsubmit=\"return submitAccept(event, '{0}')\">"
-                      "<button type='submit'>Accept this option</button></form>"
-                      ).format(row["id"])
-        cards.append(f"""
-          <div class="card option{' selected' if row['id'] == selected else ''}">
-            <h3>{option_label(row['option_key'], t)}</h3>
-            <p class="terms">{t['deliverables']} video{'s' if t['deliverables'] != 1 else ''}
-               by {t['deadline']}</p>
-            <p class="price">S${t['price_sgd']:,.2f}</p>
-            <p>{t['caption_versions']} captioned version{'s' if t['caption_versions'] != 1 else ''}
-               · {t['revision_rounds']} revision round{'s' if t['revision_rounds'] != 1 else ''}</p>
-            {''.join(marks)}
-            {phase_html}
-            {button}
-          </div>""")
+    money = deal_logic.client_amount
+    when = deal_logic.client_date
+
     if accepted:
         status_banner = (
-            "<p class='accepted'>Thank you — your booking is confirmed. Alex will be in touch.</p>"
+            "<p class='banner accepted'>Thank you — your booking is confirmed. I'll be in touch.</p>"
             if version["status"] == "confirmed" else
-            "<p class='accepted'>Thank you — your acceptance is recorded"
-            " and awaits confirmation from Alex.</p>")
+            "<p class='banner accepted'>Thank you — your acceptance is recorded"
+            " and awaits my confirmation.</p>")
         change_form = ""
     elif preview:
-        status_banner = "<p class='chip'>Owner preview — nothing has been sent.</p>"
+        status_banner = "<p class='banner'>Owner preview — nothing has been sent.</p>"
         change_form = ""
     else:
         status_banner = ""
         change_form = f"""
-        <form class="rc" method="post" onsubmit="return submitChangeForm(event)">
-          <label for="rc">Request a change</label>
-          <textarea id="rc" name="body" placeholder=
-            "State what you want changed: number of videos, captioned versions, deadline and budget."></textarea>
-          <p class="small">Your message is kept exactly as written. The explicit
-           counters below state the terms — nothing is inferred from the free text.</p>
-          <div class="ctl">
-            <label class="rc-field">Videos
+        <form class="formpeek rc" method="post" onsubmit="return submitChangeForm(event)">
+            <label class="rc-field">Number of videos
               <input id="rc-count" type="number" min="1" value="{int(selected_terms.get('deliverables', 1))}"></label>
+            <label class="rc-field">New deadline
+              <input id="rc-deadline" type="date" value="{_esc(selected_terms.get('deadline', ''))}"></label>
             <label class="rc-field">Captioned versions
               <input id="rc-captions" type="number" min="0" value="{int(selected_terms.get('caption_versions', 0))}"></label>
-            <label class="rc-field">Deadline
-              <input id="rc-deadline" type="date" value="{_esc(selected_terms.get('deadline', ''))}"></label>
-            <label class="rc-field">Budget S$
+            <label class="rc-field">Your budget (S$)
               <input id="rc-budget" type="number" step="0.01" value="{selected_terms.get('price_sgd', 0)}"></label>
-            <button type="submit">Send change request</button>
-          </div>
+            <label class="wide" for="rc">Your message
+              <textarea id="rc" name="body" rows="2" placeholder=
+            "Tell me what you'd like changed: number of videos, captioned versions, deadline or budget."></textarea></label>
+            <p class="wide small muted">I read your message as written. The numbers above are the terms I'll look at.</p>
+            <div class="wide"><button class="btn p" type="submit">Send change request</button></div>
         </form>"""
     # A composition/edit increments version_no without making a counteroffer.
-    previous_published = conn.execute(
-        'SELECT v.id FROM proposal_versions v WHERE v.deal_id=? '
+    earlier = list(conn.execute(
+        'SELECT v.id, COALESCE(v.published_at, (SELECT MAX(a.decided_at) FROM approvals a '
+        'WHERE a.version_id=v.id AND a.action=\'approve\')) AS published_at FROM proposal_versions v WHERE v.deal_id=? '
         'AND (v.published_at IS NOT NULL OR EXISTS '
         '(SELECT 1 FROM approvals a WHERE a.version_id=v.id AND a.action=\'approve\')) '
-        'AND v.version_no<? ORDER BY v.version_no DESC LIMIT 1',
-        (version['deal_id'], version['version_no'])).fetchone()
+        'AND v.version_no<? ORDER BY v.version_no DESC',
+        (version['deal_id'], version['version_no'])))
+    previous_published = earlier[0] if earlier else None
     counter_design = previous_published is not None
+    client_version = len(earlier) + 1
     title = "Alex Studio — your proposal" if not preview else "Owner preview — client page"
     story_html = commerce.proposal_html(conn, version, preview)
-    if composed["headline"]:
-        story_html = story_html.replace('<section class="proposal-story"><h2>' + _esc(composed["headline"]) + '</h2>', '<section class="proposal-story">', 1)
-    if composed["introduction"]:
-        story_html = story_html.replace('<section class="proposal-story"><p>' + _esc(composed["introduction"]) + '</p>', '<section class="proposal-story">', 1)
-    featured = (portfolio.public_asset(conn, composed["portfolio"][0].get("asset_id", ""))
-                if composed["portfolio"] else None)
-    if featured:
-        src = _esc(featured["media_url"])
-        media = (f'<video controls preload="metadata" src="{src}" aria-label="Featured creative reference"></video>'
-                 if featured["mime"].startswith("video/") else
-                 f'<img src="{src}" alt="{_esc(featured["title"])}">')
-    else:
-        media = '<div class="preview-placeholder" aria-hidden="true">Alex Studio</div>'
-    has_composed = any((composed["headline"], composed["introduction"], composed["sections"], composed["portfolio"]))
-    nav = ("<nav class='proposal-nav' aria-label='Proposal sections'><a href='#concept'>Concept</a>"
-           "<a href='#portfolio'>References</a><a href='#packages'>Packages</a></nav>" if has_composed else "")
-    hero_title = composed["headline"] or title
+    hero_title = composed["headline"] or ("Pick the option that fits" if counter_design else "Your proposal")
     hero_intro = composed["introduction"] or version["draft_body"]
     # Keep all prose in the saved, checked composition. Never invent a shoot
     # slot, first-cut schedule, payment split or budget-fit claim for decoration.
-    sections = ''.join('<section><h4>' + _esc(s.get('title', '')) +
-                       '</h4><p class="lede">' + _esc(s.get('body', '')) + '</p></section>'
+    sections = ''.join('<div class="story"><h4>' + _esc(s.get('title', '')) +
+                       '</h4><p class="lede">' + _esc(s.get('body', '')) + '</p></div>'
                        for s in composed['sections'])
-    references = []
+
+    # -- media: QwenWork's confirmed portfolio pick first, stock footage otherwise
+    picks = []
     for item in composed['portfolio']:
         asset = portfolio.public_asset(conn, item.get('asset_id', ''))
-        if not asset:
-            continue
-        src = _esc(asset['media_url'])
-        visual = (f'<video controls preload="metadata" src="{src}"></video>'
-                  if asset['mime'].startswith('video/') else
-                  f'<img src="{src}" alt="{_esc(asset["title"])}">')
-        references.append('<figure><div class="reference-media">' + visual +
-                          '</div><figcaption>' + _esc(item.get('title', '')) +
-                          '</figcaption><p class="small muted">' +
-                          _esc(item.get('description', '')) + '</p></figure>')
-    reference_html = ''.join(references) or '<div class="reference-empty small muted">No sharing-cleared work selected for this proposal.</div>'
-    if not counter_design:
-        stills = []
-        for item in composed['portfolio']:
-            asset = portfolio.public_asset(conn, item.get('asset_id', ''))
-            if asset and asset['mime'].startswith('image/'):
-                stills.append('<div class="still"><img src="' + _esc(asset['media_url']) +
-                              '" alt="' + _esc(item.get('title') or asset['title']) + '"></div>')
-        if stills:
-            reference_html = (references[0] if references else '') + '<div class="still-strip">' + ''.join(stills[:3]) + '</div>'
-        else:
-            reference_html += '<div class="still-strip" aria-label="Reference stills unavailable">' + '<div class="still unavailable">No cleared still selected</div>' * 3 + '</div>'
-    offer_row = conn.execute('SELECT offer_json FROM offers WHERE id=?', (version['offer_id'],)).fetchone()
+        if asset:
+            picks.append((asset, item))
+    if picks:
+        asset, item = picks[0]
+        name = item.get('title') or asset['title']
+        featured = _media_html(asset['media_url'], asset['mime'], 'Similar work: ' + name, alt=name)
+        featured_caption = _esc(item.get('description') or 'From my portfolio, picked to match your brief')
+    else:
+        featured = _media_html('/stock/coffee.mp4', shot='Similar work: a launch promo')
+        featured_caption = 'Video, from my recent launch work'
+    stills = [p for p in picks[1:]]
+    if stills:
+        strip = ''.join(_media_html(a['media_url'], a['mime'], kind='reel', playable=False,
+                                    alt=i.get('title') or a['title']) for a, i in stills[:3])
+    else:
+        strip = ''.join(_media_html('/stock/' + clip, shot='Reel frame', kind='reel', playable=False)
+                        for clip in ('bakery.mp4', 'vertical.mp4', 'espresso.mp4'))
+    media_column = ('<div class="col"><figure>' + featured + '<figcaption>' + featured_caption +
+                    '</figcaption></figure><div class="strip">' + strip + '</div>'
+                    '<figcaption>Stills from vertical deliverables, so you can picture the format</figcaption></div>')
+
+    offer_row = conn.execute('SELECT offer_json, as_of FROM offers WHERE id=?', (version['offer_id'],)).fetchone()
     offer = db.uj(offer_row['offer_json']) if offer_row else {}
     offer = offer.get('offer', offer)
     budget = offer.get('budget_sgd')
-    budget_html = ('<span class="chip budget">Your budget: S$' + format(budget, ',.2f') + '</span>'
-                   if isinstance(budget, (int, float)) and not isinstance(budget, bool) else '')
-    from datetime import date
-    def display_date(value):
-        return date.fromisoformat(value).strftime('%d %b %Y').lstrip('0')
+    has_budget = isinstance(budget, (int, float)) and not isinstance(budget, bool)
+    budget_html = ('<span class="chip budget">Your budget: ' + money(budget) + '</span>'
+                   if has_budget else '')
+
+    def headline(terms):
+        phases = terms.get('phases') or []
+        if phases:
+            first, rest = phases[0], phases[1:]
+            text = str(first['deliverables']) + ' by ' + when(first['deadline'])
+            for p in rest:
+                text += ', then ' + str(p['deliverables']) + ' more by ' + when(p['deadline'])
+            return text
+        return _plural(terms['deliverables'], 'video') + ' by ' + when(terms['deadline'])
+
+    def tick_list(terms):
+        ticks = []
+        if terms.get('phases'):
+            ticks.append('Launch videos first, the rest after')
+        if 'caption_versions' in terms:
+            ticks.append(_plural(terms['caption_versions'], 'captioned version'))
+        if terms.get('shoot_days'):
+            ticks.append(_plural(terms['shoot_days'], 'shoot day') +
+                         (' at ' + _plural(terms['locations'], 'location') if terms.get('locations') else ''))
+        if 'revision_rounds' in terms:
+            ticks.append(_plural(terms['revision_rounds'], 'revision round') + ' included')
+        return ''.join('<li>' + _esc(t) + '</li>' for t in ticks)
+
     option_cards = []
+    accept_labels = {}
     for row in option_rows:
         terms = db.uj(row['public_terms_json'])
-        label = option_label(row['option_key'], terms)
-        phase_lines = ''.join('<li>' + str(p['deliverables']) + ' videos by ' +
-                              _esc(p['deadline']) + '</li>' for p in terms.get('phases') or [])
-        ticks = ''.join('<li>' + str(terms[k]) + ' ' + name + '</li>' for k, name in
-                        [('caption_versions', 'captioned versions'), ('shoot_days', 'shoot days'),
-                         ('locations', 'locations'), ('revision_rounds', 'revision rounds')]
-                        if k in terms)
+        label = _client_label(option_label(row['option_key'], terms), counter_design)
+        accept_labels[row['id']] = ('Accept phased' if terms.get('phases') else
+                                    'Accept ' + headline(terms))
         fit = ''
-        if isinstance(budget, (int, float)) and not isinstance(budget, bool):
+        if has_budget:
             difference = round(terms['price_sgd'] - budget, 2)
-            fit = '<span class="fit ' + ('over' if difference > 0 else 'ok') + '">' + (
-                'Matches your budget' if difference == 0 else
-                'S$' + format(abs(difference), ',.2f') + (' over your budget' if difference > 0 else ' under your budget')) + '</span>'
-        card_heading = ('<span class="tag">' + _esc(label) + '</span><h5>' +
-                        ('; then '.join(str(p['deliverables']) + ' videos by ' + display_date(p['deadline']) for p in terms['phases'])
-                         if terms.get('phases') else str(terms['deliverables']) + ' videos by ' + display_date(terms['deadline'])) +
-                        '</h5><span class="price">S$' + format(terms['price_sgd'], ',.2f') + '</span>')
-        if not counter_design:
-            card_heading = '<div class="option-heading"><h5>' + _esc(label) + '</h5><span class="price">S$' + format(terms['price_sgd'], ',.2f') + '</span></div>'
-            ticks = '<li>' + str(terms['deliverables']) + ' videos by ' + display_date(terms['deadline']) + '</li>' + ticks
-        option_cards.append('<label class="opt"><input type="radio" name="proposal-option" value="' +
-                            _esc(row['id']) + '"' + (' checked' if row['id'] == selected or len(option_rows) == 1 else '') +
-                            (' disabled' if accepted else '') + '>' + card_heading + fit + '<ul class="ticks">' +
-                            phase_lines + ticks + '</ul></label>')
-    cards_html = '<div class="optgrid" id="packages">' + ''.join(option_cards) + '</div>'
+            if counter_design:
+                fit_text = ('Matches your budget' if difference == 0 else
+                            money(abs(difference)) + (' over your budget' if difference > 0 else ' under your budget'))
+            else:
+                fit_text = ('Your budget: ' + money(budget) + '. ' +
+                            ('This proposal fits it.' if difference <= 0 else
+                             'This proposal is ' + money(difference) + ' over it.'))
+            fit = '<span class="fit ' + ('over' if difference > 0 else 'ok') + '">' + fit_text + '</span>'
+        checked = row['id'] == selected or len(option_rows) == 1 or row['id'] == accepted
+        radio = ('<input type="radio" name="proposal-option" value="' + _esc(row['id']) + '"' +
+                 ' data-accept="' + _esc(accept_labels[row['id']]) + '"' +
+                 (' checked' if checked else '') + (' disabled' if accepted else '') + '>')
+        if counter_design:
+            body = ('<span class="tag">' + _esc(label) + '</span><h5>' + _esc(headline(terms)) +
+                    '</h5><span class="price">' + money(terms['price_sgd']) + '</span>' + fit +
+                    '<ul class="ticks">' + tick_list(terms) + '</ul>')
+        else:
+            body = ('<div class="opt-head"><h5>' + _esc(label) + '</h5><span class="price">' +
+                    money(terms['price_sgd']) + '</span></div>' + fit + '<ul class="ticks"><li>' +
+                    _esc(headline(terms)) + '</li>' + tick_list(terms) + '</ul>')
+        option_cards.append('<label class="opt">' + radio + body + '</label>')
+    single = len(option_rows) == 1
+    cards_html = ('<div class="' + ('options' if single and not counter_design else 'optgrid') +
+                  '" id="packages" role="radiogroup" aria-label="Proposal options">' +
+                  ''.join(option_cards) + '</div>')
+    picked = next((r['id'] for r in option_rows if r['id'] == selected), None) or (
+        option_rows[0]['id'] if single else None)
+    accept_text = (accept_labels.get(picked) if counter_design and picked else 'Accept this proposal')
     action = ('<button class="btn p" disabled>Preview only - not yet released</button>' if preview else
               '<button class="btn p" disabled>Acceptance recorded</button>' if accepted else
-              '<form onsubmit="event.preventDefault(); const chosen=document.querySelector(\'input[name=proposal-option]:checked\'); if(chosen) {this.querySelector(\'button\').disabled=true; accept(chosen.value,this.querySelector(\'button\'));} else setMsg(\'Pick an option first.\'); return false"><button class="btn p" type="submit">Accept this proposal</button></form>')
-    change_action = '' if preview or accepted else '<button class="btn g" type="button" onclick="document.getElementById(\'change-panel\').hidden=!document.getElementById(\'change-panel\').hidden">Request a change</button>'
-    actions = '<div class="row">' + action + ('' if counter_design else change_action) + '</div>'
+              '<form onsubmit="event.preventDefault(); const chosen=document.querySelector(\'input[name=proposal-option]:checked\'); if(chosen) {this.querySelector(\'button\').disabled=true; accept(chosen.value,this.querySelector(\'button\'));} else setMsg(\'Pick an option first.\'); return false"><button class="btn p" id="accept-btn" type="submit">' + _esc(accept_text) + '</button></form>')
+    change_label = 'Request another change' if counter_design else 'Request a change'
+    change_action = ('' if preview or accepted else
+                     '<button class="btn g" type="button" aria-controls="change-panel" onclick="toggleChange()">' +
+                     change_label + '</button>')
     change_panel = '<div id="change-panel" hidden>' + change_form + '</div>'
-    milestones = selected_terms.get('phases') or ([{'deadline': selected_terms['deadline']}] if selected_terms.get('deadline') else [])
-    schedule = '<div class="gantt" aria-label="Approved delivery schedule">'
-    for label in ('Shoot day', 'First cuts', 'Revisions'):
-        schedule += '<div class="g-row"><span>' + label + '</span><div class="g-bar unscheduled"><span>Not scheduled in this proposal</span></div></div>'
-    for milestone in milestones:
-        schedule += '<div class="g-row"><span>Delivery</span><div class="g-bar delivery"><i></i></div></div><div class="g-row"><span></span><time class="muted">' + display_date(milestone['deadline']) + '</time></div>'
-    schedule += '</div>'
-    if counter_design:
-        body_html = ('<div class="replacement">' + _esc(hero_intro) + '</div><div class="row heading-row"><h3>' +
-                     _esc(hero_title) + '</h3>' + budget_html + '</div>' + cards_html + actions +
-                     '<div class="hero2"><div>' + reference_html + '</div><div class="narrative">' +
+
+    # -- schedule: a rough plan from the quote date to each delivery date
+    def as_date(value):
+        try:
+            return date.fromisoformat(str(value))
+        except ValueError:
+            return None
+    phases = selected_terms.get('phases') or ([{'deadline': selected_terms['deadline']}]
+                                              if selected_terms.get('deadline') else [])
+    deadlines = [d for d in (as_date(p['deadline']) for p in phases) if d]
+    start = as_date(offer_row['as_of']) if offer_row and offer_row['as_of'] else None
+    if not start:
+        stamp = version['published_at'] or version['created_at'] or time.time()
+        start = datetime.fromtimestamp(stamp, STUDIO_TZ).date()
+    schedule = ''
+    if deadlines and deadlines[-1] > start:
+        span = (deadlines[-1] - start).days
+        first = (deadlines[0] - start).days / span
+
+        def bar(left, width, lite=False):
+            return ('<i' + (' class="lite"' if lite else '') + ' style="left:' + format(left * 100, '.1f') +
+                    '%;width:' + format(width * 100, '.1f') + '%"></i>')
+        rows = [('Shoot day', bar(0.18 * first, 0.06 * first)),
+                ('First cuts', bar(0.26 * first, 0.24 * first)),
+                ('Revisions', bar(0.52 * first, 0.30 * first + (1 - first) * 0.85))]
+        deliveries = ''.join(bar(max(0, (d - start).days / span - 0.05), 0.05, lite=i < len(deadlines) - 1)
+                             for i, d in enumerate(deadlines))
+        rows.append(('Delivery', deliveries))
+        schedule = ('<div class="gantt" aria-label="Rough delivery plan">' +
+                    ''.join('<div class="g-row"><span>' + name + '</span><div class="g-bar">' + bars +
+                            '</div></div>' for name, bars in rows) +
+                    '<div class="g-row"><span></span><div class="g-axis muted"><span>' + when(start.isoformat()) +
+                    '</span><span>' + when(deadlines[-1].isoformat()) + '</span></div></div>'
+                    '<div class="g-row"><span></span><span class="small muted">A rough plan. I\'ll confirm the shoot day by email.</span></div></div>')
+
+    if accepted and not preview:
+        chosen_row = next((r for r in option_rows if r['id'] == accepted), None)
+        chosen = db.uj(chosen_row['public_terms_json']) if chosen_row else selected_terms
+        confirmed = version['status'] == 'confirmed'
+        summary = ''
+        if chosen:
+            label = _client_label(option_label(chosen_row['option_key'], chosen), counter_design) if chosen_row else ''
+            summary = ('<li>' + _esc((label + ': ' if label and chosen.get('phases') else '') + headline(chosen)) + '</li>'
+                       '<li>Shoot day: ' + ('confirmed by email' if confirmed else "I'll confirm the date by email") + '</li>'
+                       '<li>' + money(chosen['price_sgd']) + ' total</li>')
+        body_html = ('<div class="booked">' +
+                     _media_html('/stock/bts.mp4', shot='My kit, ready for shoot day', kind='photo', playable=False) +
+                     '<h3>' + ("You're booked in." if confirmed else 'Thanks, your choice is in.') + '</h3>'
+                     '<span class="small muted">' + ("I've confirmed your booking. See you on shoot day." if confirmed else
+                                                     "I'll check the calendar and confirm the booking by email shortly.") + '</span>'
+                     '<ul class="ticks">' + summary + '</ul>'
+                     '<div class="story"><h4>Before the shoot</h4><span class="small muted">Send any brand notes, logo files '
+                     'and reference links. On shoot day, plan for a quiet space while I set up.</span></div>'
+                     '<div class="row">' + action + '</div></div>')
+    elif counter_design:
+        replaced = ''
+        if previous_published and previous_published['published_at']:
+            replaced = ('This replaces the proposal from ' +
+                        datetime.fromtimestamp(previous_published['published_at'], STUDIO_TZ).strftime('%d %b, %H:%M').lstrip('0') + '. ')
+        side_media = (featured if picks else
+                      _media_html('/stock/street.mp4', shot='From my recent work: launch teaser, then a follow-up series'))
+        body_html = ('<div class="replacement">' + _esc(replaced) + _esc(hero_intro) + '</div>'
+                     '<div class="row between"><h3>' + _esc(hero_title) + '</h3>' + budget_html + '</div>' +
+                     cards_html + '<div class="row">' + action +
+                     ('' if preview or accepted or single else '<span class="small muted">Pick a card, then accept.</span>') +
+                     '</div>' + ('<div>' + schedule + '</div>' if schedule and selected_terms.get('phases') else '') +
+                     '<div class="hero2"><div>' + side_media + '</div><div class="col"><h4>Not quite right?</h4>'
+                     '<p class="lede">Ask for another change and I\'ll look at it. Nothing is booked until you accept one option.</p>' +
                      sections + '<div class="row">' + change_action + '</div></div></div>' + change_panel)
     else:
-        body_html = ('<div class="hero2"><div class="narrative"><h3>' + _esc(hero_title) +
-                     '</h3><p class="lede">' + _esc(hero_intro) + '</p>' + cards_html +
-                      sections + schedule + actions + change_panel + '<span class="small muted">Selection awaits founder booking confirmation; no dates are held by acceptance.</span></div><div class="references">' + reference_html + '</div></div>')
+        body_html = ('<div class="hero2 top"><div class="col"><h3>' + _esc(hero_title) +
+                     '</h3><p class="lede">' + _esc(hero_intro) + '</p>' + sections + cards_html + schedule +
+                     '<div class="row">' + action + change_action + '</div>' + change_panel +
+                     '<span class="small muted">Once you accept, I\'ll confirm the booking and the shoot day by email.</span>'
+                     '</div>' + media_column + '</div>')
     # Confirmed-booking amendments retain their existing renderer and handlers.
     # Library package selectors must obey the same exact preview/release subset.
-    import re
     allowed_ids = {r['id'] for r in option_rows}
     story_html = re.sub(r'<option value="([^"]+)" data-count="[^"]+">.*?</option>',
                         lambda match: match.group(0) if match.group(1) in allowed_ids else '', story_html)
     library_start = story_html.find('<section><h2>Explore studio work</h2>')
     if library_start >= 0:
-        body_html += story_html[library_start:]
+        body_html += story_html[library_start:].replace('<section><h2>Explore studio work</h2>',
+                                                         '<section class="library"><h2>Explore studio work</h2>', 1)
     elif version['status'] == 'confirmed':
-        body_html += story_html
+        body_html += '<div class="library">' + story_html + '</div>'
     if version['status'] == 'confirmed':
-        body_html += '<p>Booking confirmed</p>'
+        body_html += '<p class="small muted">Booking confirmed</p>'
     client = conn.execute('SELECT client,sample_data FROM deals WHERE id=?', (version['deal_id'],)).fetchone()
     badge = '<span class="small muted">' + SAMPLE_BADGE + '</span>' if client['sample_data'] else ''
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -913,7 +1026,7 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
 <meta name="robots" content="noindex,nofollow"><title>{_esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap">
 <style>{PROPOSAL_STYLE}</style></head><body class="site" data-proposal-design="{'counter' if counter_design else 'initial'}">
-<header class="site-top"><span class="brand">Alex Studio</span><span class="small muted">Private proposal for {_esc(client['client'])}, version {version['version_no']}</span>{badge}</header>
+<header class="site-top"><span class="brand">Alex Studio</span><span class="small muted">Private proposal for {_esc(client['client'])}, version {client_version}</span>{badge}</header>
 <main class="site-body">{status_banner}{body_html}<p id="msg" role="status" aria-live="polite"></p></main><script>
 // Submit handlers are synchronous: they prevent the native form POST and
 // disable the button BEFORE starting the async JSON request, so a Promise
@@ -939,6 +1052,32 @@ function stableRequestId(payload) {{
 function setMsg(text) {{
   document.getElementById('msg').textContent = text;
 }}
+function toggleChange() {{
+  const panel = document.getElementById('change-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) {{ panel.scrollIntoView({{block: 'nearest'}}); const first = document.getElementById('rc-count'); if (first) first.focus(); }}
+}}
+document.querySelectorAll('input[name=proposal-option]').forEach(function (input) {{
+  input.addEventListener('change', function () {{
+    const btn = document.getElementById('accept-btn');
+    if (btn && document.body.dataset.proposalDesign === 'counter') btn.textContent = input.dataset.accept;
+  }});
+}});
+// Wireframe media: tap to play or pause, live timecode and scrubber.
+(function () {{
+  const fmt = n => {{ n = Math.trunc(n || 0); return String(Math.trunc(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0'); }};
+  document.querySelectorAll('.media[data-play]').forEach(function (m) {{
+    const v = m.querySelector('video'); if (!v) return;
+    const tc = m.querySelector('.tc'), sc = m.querySelector('.scrub i');
+    const upd = () => {{ if (tc) tc.textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration); if (sc && v.duration) sc.style.width = (v.currentTime / v.duration * 100) + '%'; }};
+    v.addEventListener('loadedmetadata', upd); v.addEventListener('timeupdate', upd);
+    v.addEventListener('play', () => {{ m.classList.add('playing'); m.setAttribute('aria-label', 'Pause video'); }});
+    v.addEventListener('pause', () => {{ m.classList.remove('playing'); m.setAttribute('aria-label', 'Play video'); }});
+    const toggle = () => {{ if (v.paused) v.play().catch(() => {{}}); else v.pause(); }};
+    m.addEventListener('click', toggle);
+    m.addEventListener('keydown', e => {{ if (e.key === 'Enter' || e.key === ' ') {{ e.preventDefault(); toggle(); }} }});
+  }});
+}})();
 function submitAccept(ev, optionId) {{
   ev.preventDefault();
   const btn = ev.target.querySelector("button[type='submit']");
@@ -953,7 +1092,7 @@ async function accept(optionId, btn) {{
       headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{option_id: optionId}})}});
     const data = await res.json();
     setMsg(data.ok
-      ? 'Thank you — your acceptance is recorded and awaits confirmation from Alex.'
+      ? 'Thank you — your acceptance is recorded. I\\'ll confirm the booking by email.'
       : 'Could not record acceptance: ' + (data.error || 'unknown error') + '. You can try again.');
     if (data.ok) setTimeout(() => location.reload(), 800);
     else btn.disabled = false;
@@ -986,7 +1125,7 @@ async function requestChange(btn) {{
         request_id: stableRequestId(payload)}})}});
     const data = await res.json();
     setMsg(data.ok
-      ? 'Your change request was sent. Alex will review and reply.'
+      ? 'Your change request was sent. I\\'ll review it and reply.'
       : 'Could not send the request: ' + (data.error || 'unknown error') + '. Your message is still in the box — you can try again.');
     if (data.ok) {{ btn.textContent = 'Change request sent'; }}
     else {{ btn.disabled = false; btn.textContent = 'Send change request'; }}

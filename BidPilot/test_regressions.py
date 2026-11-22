@@ -143,9 +143,9 @@ class RegressionTests(unittest.TestCase):
             self.assertIn(version['draft_body'], after)
             rows = core.options_of(conn, version)
             chosen = next(r for r in rows if r['option_key'] == 'phased')
-            self.assertIn('2 videos by 2026-12-04', before)
-            self.assertIn('3 videos by 2026-12-18', after)
-            self.assertIn('S$4,000.00', after)
+            self.assertIn('2 by 4 Dec', before)
+            self.assertIn('3 more by 18 Dec', after)
+            self.assertIn('S$4,000', after)
             with self.assertRaises(ValueError):
                 core.check_draft(conn, vid)
             self.assertFalse(core.client_accept(conn, released['token'], db.new_id())['ok'])
