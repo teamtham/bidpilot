@@ -43,6 +43,9 @@ class Journey(unittest.TestCase):
                 server.https_origin(value)
 
     def setUp(self):
+        # These journeys act as the QwenWork MCP consumer, including its chat replies.
+        self.chat_provider = patch.dict(os.environ, {'BIDPILOT_STUDIO_ASSISTANT': 'qwenwork'})
+        self.chat_provider.start()
         self.tmp = tempfile.TemporaryDirectory()
         self.path = str(Path(self.tmp.name) / 'journey.db')
         c = db.connect(self.path)
@@ -53,6 +56,7 @@ class Journey(unittest.TestCase):
         self.db_patch.start()
 
     def tearDown(self):
+        self.chat_provider.stop()
         self.db_patch.stop()
         self.tmp.cleanup()
 

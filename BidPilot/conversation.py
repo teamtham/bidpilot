@@ -4,6 +4,7 @@ The host dispatches routes before owner authentication, after opening its per-re
 connection. MCP callers are trusted service users; public routes use capability tokens.
 """
 import base64
+from datetime import date
 import hashlib
 import html
 import json
@@ -55,13 +56,15 @@ def create_receipt_inquiry(c, source_id, token, fields):
     c.execute('INSERT INTO inquiry_jobs(id,inquiry_id,seq,status) VALUES (?,?,1,?)', (uid(),inquiry,'queued'))
     return inquiry
 
-def create_inquiry(c, data=None):
+def create_inquiry(c, data=None, *, provider='qwenwork'):
     token = secrets.token_urlsafe(32); inquiry = uid(); data=data or {}
     text=data.get('text',''); req=data.get('request_id') or uid()
     if not isinstance(text,str) or len(text)>10000 or not isinstance(req,str) or len(req)>128: raise ValueError('invalid_message')
     try:
         _begin(c)
         c.execute('INSERT INTO inquiries(id,token_hash,created_at) VALUES (?,?,?)', (inquiry,digest(token),time.time()))
+        if provider == 'gemini':
+            c.execute('INSERT INTO gemini_chats(inquiry_id) VALUES (?)', (inquiry,))
         if text.strip():
             ph=digest(packed({'text':text,'references':[]}))
             c.execute('INSERT INTO inquiry_turns VALUES (?,?,?,?,?,?,?,?)',(inquiry,1,'buyer',text,'[]',req,ph,time.time()))
@@ -146,6 +149,22 @@ def _check_buyer_text(c, inquiry, text, allow_scoping_question=False):
                  and all(re.search(r'(?<!\w)'+re.escape(n)+r'\s*(?:-|\s)?(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|videos?|reels?|versions?|formats?|ratios?|fps|p|k)\b',normalized) for n in unknown))
         if not neutral: raise ValueError('unverified_number')
 
+def grounded_date(subject, value, buyer_text):
+    """Recognize a fully specified buyer date after normalization to the bank's ISO format."""
+    if subject not in ('production.first_cut_date', 'production.final_delivery_date', 'deadline'):
+        return False
+    if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+        return False
+    try:
+        day = date.fromisoformat(value)
+    except ValueError:
+        return False
+    month = f"(?:{day:%B}|{day:%b})"
+    number = f"0?{day.day}(?:st|nd|rd|th)?"
+    return bool(re.search(rf'\b(?:{value}|(?:{number} {month}|{month} {number}),? {day.year})\b',
+                          buyer_text, re.I))
+
+
 def commit(c,args, decline_evaluation=None, gemini_lease=None):
     inquiry=args['inquiry_id']; seq=args['through_sequence']; rev=args['expected_revision']; reply=args['reply']; req=args['request_id']; changes=args.get('fact_changes',[])
     analysis=args.get('media_analysis_id'); cues=args.get('production_cues',[])
@@ -190,23 +209,29 @@ def commit(c,args, decline_evaluation=None, gemini_lease=None):
                     not (old_email and email == old_email['email'] and re.fullmatch(r"(?:yes|correct|yes,? that's right|that's right)[.! ]*", current_body['body'].strip(), re.I))):
                 raise ValueError('email_confirmation_not_grounded')
             delivery.save_recipient(c, row, email, proposal_email['confirmed'], seq)
+        source_body = c.execute("SELECT body FROM inquiry_turns WHERE inquiry_id=? AND seq=? AND sender='buyer'",
+                                (inquiry, seq)).fetchone() if changes else None
         for f in changes:
             if not isinstance(f,dict) or not isinstance(f.get('subject'),str) or not re.fullmatch(r'[a-z][a-z0-9_.-]{0,99}',f['subject']) or f.get('status') not in ('proposed','confirmed','excluded') or 'value' not in f or f.get('source_sequence') != seq: raise ValueError('invalid_fact')
             packed(f['value'])
             if re.search(r'(?:private|internal|floor|margin|capacity|hourly|cost|rate|profit)',f['subject'],re.I): raise ValueError('private_information')
-            _check_buyer_text(c,inquiry,packed(f['value']))
+            if not (source_body and grounded_date(f['subject'], f['value'], source_body[0])):
+                _check_buyer_text(c,inquiry,packed(f['value']))
             if f.get('supersedes') and not c.execute('SELECT 1 FROM inquiry_facts WHERE id=? AND inquiry_id=? AND subject=?',(f['supersedes'],inquiry,f['subject'])).fetchone(): raise ValueError('invalid_fact_source')
         grounded=[]
         for cue in cues:
             if not isinstance(cue,dict) or set(cue)!={'observation_id','body','uncertainty'} or not all(isinstance(cue.get(k),str) and cue[k].strip() for k in cue) or len(cue['body'])>2000 or len(cue['uncertainty'])>1000: raise ValueError('invalid_reference_cue')
             source=c.execute("SELECT o.* FROM reference_observations o JOIN reference_runs r ON r.id=o.run_id JOIN reference_assets a ON a.id=r.asset_id WHERE o.id=? AND o.run_id=? AND a.inquiry_id=?",(cue['observation_id'],analysis,inquiry)).fetchone()
             if not source: raise ValueError('invalid_reference_cue')
+            if gemini_lease:
+                _check_buyer_text(c, inquiry, cue['body'] + ' ' + cue['uncertainty'])
             grounded.append((cue,source))
-        if changes or gemini_lease: rev+=1
+        if changes or (gemini_lease and not decline_evaluation): rev+=1
         for f in changes:
             c.execute('INSERT INTO inquiry_facts VALUES (?,?,?,?,?,?,?,?,?)',(uid(),inquiry,rev,f['subject'],packed(f['value']),f['status'],seq,f.get('supersedes'),time.time()))
         for cue,source in grounded:
-            c.execute('INSERT INTO reference_observations VALUES (?,?,?,?,?,?,?,?,?,?,?)',(uid(),analysis,source['start'],source['end'],'production_cue',cue['body'],'QwenWork agent cue',cue['uncertainty'],source['frame'],source['id'],time.time()))
+            method = 'Gemini agent cue' if gemini_lease else 'QwenWork agent cue'
+            c.execute('INSERT INTO reference_observations VALUES (?,?,?,?,?,?,?,?,?,?,?)',(uid(),analysis,source['start'],source['end'],'production_cue',cue['body'],method,cue['uncertainty'],source['frame'],source['id'],time.time()))
         next_seq=c.execute('SELECT COALESCE(MAX(seq),0)+1 FROM inquiry_turns WHERE inquiry_id=?',(inquiry,)).fetchone()[0]
         c.execute('INSERT INTO inquiry_turns VALUES (?,?,?,?,?,?,?,?)',(inquiry,next_seq,'assistant',reply,'[]','agent:'+req,ph,time.time()))
         c.execute('UPDATE inquiries SET revision=?,processed_seq=? WHERE id=?',(rev,seq,inquiry))
@@ -637,19 +662,28 @@ let ni=document.querySelector('#newinquiry'),niUntil=0;
 ni.onclick=()=>{if(Date.now()<niUntil){clearToken();location.href='/inquire?new=1';return}niUntil=Date.now()+4000;ni.textContent='Tap again to confirm (this chat keeps its link)';setTimeout(()=>{niUntil=0;ni.textContent='Start a new inquiry'},4000)};
 async function request(url,opts){let r=await fetch(url,opts);let x=await r.json();if(!r.ok)throw Error(x.error||'Request failed');return x}
 function seek(id,time){let v=[...document.querySelectorAll('video')].find(v=>v.dataset.id===id);if(v){v.currentTime=time;v.scrollIntoView({block:'nearest'});v.play().catch(()=>{})}}
-let lastTurns='';
+let lastTurns='', respondingToUpdate=false;
 async function refresh(){try{let x=await request(base+'/state');let key=JSON.stringify([x.turns,x.pending,x.assistant_error]);if(key!==lastTurns){lastTurns=key;let turns=document.querySelector('#turns');turns.replaceChildren();if(!x.turns.length)turns.append(bubble('bot','Hi! What are you making, and where will people watch it?'));for(let t of x.turns){let a=bubble(t.sender==='buyer'?'me':'bot',t.body);if(t.references.length){let w=document.createElement('div');w.className='refs';for(let ref of t.references){let b=document.createElement('button');b.type='button';b.textContent='Reference at '+(ref.start||0).toFixed(1)+'s';b.onclick=()=>seek(ref.asset_id,ref.start||0);w.append(b)}a.append(w)}turns.append(a)}if(x.pending&&!x.assistant_error)turns.append(typing());scrollEnd()}renderBrief(x.facts);
 let card=document.querySelector('#refcard');card.hidden=!(x.assets.length||x.evidence.length);
 let assets=document.querySelector('#assets');if(assets.dataset.ids!==JSON.stringify(x.assets.map(a=>[a.id,a.status]))){assets.dataset.ids=JSON.stringify(x.assets.map(a=>[a.id,a.status]));assets.replaceChildren();for(let a of x.assets){let box=document.createElement('div'),v=document.createElement('video');box.className='asset';v.controls=true;v.preload='metadata';v.dataset.id=a.id;v.src=base+'/asset/'+a.id;let b=document.createElement('button');b.type='button';b.className='btn g';b.textContent='Refer to this moment';b.onclick=()=>{ta.value+=' [Reference at '+v.currentTime.toFixed(1)+' seconds]';ta.dataset.ref=JSON.stringify([{asset_id:a.id,start:v.currentTime,end:v.currentTime}]);grow();ta.focus()};let lbl=document.createElement('p');lbl.textContent=a.filename+' — '+(a.status==='failed'?'Analysis failed; you can still describe this reference.':a.status||'processing');let rm=document.createElement('button');rm.type='button';rm.className='linkbtn';rm.style.color='var(--bad)';rm.textContent='Remove';let armed=false,armTimer=0;rm.onclick=async()=>{if(!armed){armed=true;rm.textContent='Tap again to remove';armTimer=setTimeout(()=>{armed=false;rm.textContent='Remove'},4000);return}clearTimeout(armTimer);rm.disabled=true;try{await request(base+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:a.id})});if(ta.dataset.ref){try{let refs=JSON.parse(ta.dataset.ref).filter(r=>r.asset_id!==a.id);if(refs.length)ta.dataset.ref=JSON.stringify(refs);else delete ta.dataset.ref}catch(e){delete ta.dataset.ref}}await refresh();status.textContent='Reference removed.'}catch(e){rm.disabled=false;armed=false;rm.textContent='Remove';status.textContent=e.message}};box.append(lbl,v,b,rm);assets.append(box)}}
 let ev=document.querySelector('#evidence');ev.replaceChildren();for(let o of x.evidence){let b=document.createElement('button');b.type='button';b.className='t';b.textContent=o.start.toFixed(1)+'s · '+o.body;b.onclick=()=>seek(o.asset_id,o.start);let correct=document.createElement('button');correct.type='button';correct.className='linkbtn';correct.textContent='Correct or discuss';correct.onclick=()=>{ta.dataset.ref=JSON.stringify([{asset_id:o.asset_id,start:o.start,end:o.end,observation_id:o.id}]);ta.value='About this observation: ';grow();ta.focus()};let row=document.createElement('div');row.append(b,correct);ev.append(row)}
 let proposal=document.querySelector('#proposal');proposal.replaceChildren();if(x.proposal_url){let box=document.createElement('div');box.className='proposal';let a=document.createElement('a');a.href=x.proposal_url;a.textContent='View your approved proposal';box.append(a);proposal.append(box)}
-window.briefState=x;document.querySelector('#retryassistant').hidden=x.provider!=='gemini'||(!x.assistant_error&&!x.pending&&!x.assets.length);document.querySelector('#sendbrief').disabled=!!x.pending;status.textContent=x.assistant_error||(x.pending?'Waiting for the assistant. You can return to this link.':'')}catch(e){status.textContent=e.message}}
+window.briefState=x;
+document.querySelector('#retryassistant').hidden=x.provider!=='gemini'||(!x.assistant_error&&!x.pending);
+document.querySelector('#sendbrief').disabled=!!(x.pending||x.media_update||x.assets.some(a=>['queued','running'].includes(a.status)));
+status.textContent=x.assistant_error||(x.pending?'Waiting for the assistant. You can return to this link.':x.submitted?'Brief received for studio review. You can return to this link.':'');
+if((x.media_update||x.review_question)&&!x.assistant_error&&!respondingToUpdate){
+  respondingToUpdate=true;
+  try{await request(base+'/retry',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refresh()}
+  finally{respondingToUpdate=false}
+}
+}catch(e){status.textContent=e.message}}
 async function send(text,refs){let data={text,request_id:crypto.randomUUID(),references:refs||[]};await request(base+'/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})}
 document.querySelector('#form').onsubmit=async e=>{e.preventDefault();if(!ta.value.trim()&&!ta.dataset.ref)return;try{await send(ta.value,JSON.parse(ta.dataset.ref||'[]'));ta.value='';delete ta.dataset.ref;grow();refresh()}catch(e){status.textContent=e.message}};
 document.querySelectorAll('[data-quick]').forEach(b=>b.onclick=async()=>{try{await send(b.dataset.quick);refresh()}catch(e){status.textContent=e.message}});
 document.querySelector('#retryassistant').onclick=async()=>{try{await request(base+'/retry',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});await refresh()}catch(e){status.textContent=e.message}};
 document.querySelector('#sendbrief').onclick=async()=>{try{let x=window.briefState;let r=await request(base+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:x.revision,sequence:x.processed_sequence})});await refresh();status.textContent='Brief received for studio review. Receipt '+r.receipt_id+'. No price or booking is confirmed.'}catch(e){status.textContent=e.message}};
-fileIn.onchange=async()=>{let f=fileIn.files[0];if(!f)return;syncChip();status.textContent='Uploading…';let bytes=new Uint8Array(await f.arrayBuffer()),s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode(...bytes.subarray(i,i+32768));try{await request(base+'/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,mime:f.type,data:btoa(s)})});fileIn.value='';syncChip();status.textContent='';refresh()}catch(e){status.textContent=e.message}};refresh();setInterval(()=>{if(window.briefState?.provider==='qwenwork')refresh()},5000);
+fileIn.onchange=async()=>{let f=fileIn.files[0];if(!f)return;syncChip();status.textContent='Uploading…';let bytes=new Uint8Array(await f.arrayBuffer()),s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode(...bytes.subarray(i,i+32768));try{await request(base+'/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,mime:f.type,data:btoa(s)})});fileIn.value='';syncChip();status.textContent='';refresh()}catch(e){status.textContent=e.message}};refresh();setInterval(()=>{let x=window.briefState;if(x&&(x.provider==='qwenwork'||x.submitted||x.media_update||x.assets.some(a=>['queued','running'].includes(a.status))))refresh()},5000);
 </script></body></html>''')
 
 def dispatch_get(h,path):
@@ -667,6 +701,14 @@ def dispatch_get(h,path):
         result=context(h.conn,{'inquiry_id':row['id']}); result['provider']=provider
         state=h.conn.execute('SELECT error FROM gemini_chats WHERE inquiry_id=?',(row['id'],)).fetchone()
         result['assistant_error']=state['error'] if state else None
+        result['media_update'] = provider == 'gemini' and bool(h.conn.execute(
+            "SELECT 1 FROM media_notifications WHERE inquiry_id=? AND status='gemini' LIMIT 1",
+            (row['id'],)).fetchone())
+        result['submitted'] = bool(h.conn.execute(
+            'SELECT 1 FROM studio_submissions WHERE inquiry_id=? AND revision=? AND sequence=?',
+            (row['id'], result['revision'], result['processed_sequence'])).fetchone())
+        result['review_question'] = (provider == 'gemini' and result['submitted'] and bool(
+            studio_assistant.decline_followup(h.conn, row['id'], result['revision'])))
         result.pop('pricing_history',None)
         result['assets']=[dict(x) for x in h.conn.execute('SELECT a.id,a.filename,r.status,r.error FROM reference_assets a LEFT JOIN reference_runs r ON r.asset_id=a.id WHERE a.inquiry_id=? ORDER BY a.created_at',(row['id'],))]; result['evidence']=[dict(x) for x in h.conn.execute("SELECT o.id,o.run_id,a.id AS asset_id,o.start,o.end,o.kind,o.body,o.method,o.uncertainty,o.supersedes FROM reference_observations o JOIN reference_runs r ON r.id=o.run_id JOIN reference_assets a ON a.id=r.asset_id WHERE a.inquiry_id=? ORDER BY o.start",(row['id'],))]; result['pending']=bool(h.conn.execute("SELECT 1 FROM inquiry_jobs WHERE inquiry_id=? AND status!='done'",(row['id'],)).fetchone())
         
@@ -681,6 +723,7 @@ def dispatch_get(h,path):
     return True
 
 def dispatch_post(h,path):
+    import studio_assistant
     match=re.fullmatch(r'/i/([A-Za-z0-9_-]+)/(messages|upload|remove|retry|submit)',path)
     if path!='/inquire' and not match: return False
     try:
@@ -689,7 +732,7 @@ def dispatch_post(h,path):
         data=h.body()
         if path=='/inquire':
             if not isinstance(data.get('text'),str) or (not data['text'].strip() and data.get('attachment_first') is not True): raise ValueError('message_required')
-            result=create_inquiry(h.conn,data)
+            result=create_inquiry(h.conn,data,provider=studio_assistant.configured_provider())
         else:
             row=_by_token(h.conn,match.group(1))
             if not row: h.not_found(); return True
@@ -698,10 +741,8 @@ def dispatch_post(h,path):
             elif action=='upload': result=upload(h.conn,row['id'],data)
             elif action=='remove': result=remove_reference(h.conn,row['id'],data)
             elif action=='submit':
-                import studio_assistant
                 result=studio_assistant.submit_brief(h.conn,row['id'],data['revision'],data['sequence'])
             else: result={}
-        import studio_assistant
         inquiry=result.get('inquiry_id') if path=='/inquire' else row['id']
         provider=studio_assistant.route(h.conn,inquiry)
         result['provider']=provider

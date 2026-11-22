@@ -5,10 +5,10 @@
       "command": "/usr/bin/env",
       "args": [
         "node",
-        "/Users/teamtham/hackathon/tools/qwenwork-mcp-bridge.js"
+        "/Users/teamtham/idea/tools/qwenwork-mcp-bridge.js"
       ],
       "env": {
-        "QWENWORK_PROJECT_ROOT": "/Users/teamtham/hackathon"
+        "QWENWORK_PROJECT_ROOT": "/Users/teamtham/idea"
       }
     }
   }

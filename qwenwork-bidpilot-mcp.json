@@ -5,10 +5,10 @@
       "command": "/usr/bin/env",
       "args": [
         "python3",
-        "/Users/teamtham/hackathon/BidPilot/mcp_server.py"
+        "/Users/teamtham/idea/BidPilot/mcp_server.py"
       ],
       "env": {
-        "BIDPILOT_MCP_DB": "/Users/teamtham/hackathon/BidPilot/bidpilot.db"
+        "BIDPILOT_MCP_DB": "/Users/teamtham/idea/BidPilot/bidpilot.db"
       }
     }
   }

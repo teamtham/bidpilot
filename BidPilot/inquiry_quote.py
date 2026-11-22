@@ -46,7 +46,11 @@ def price(conn, args):
                         (inquiry_id, inquiry["processed_seq"])).fetchone():
             raise ValueError("buyer_reply_pending")
         if conn.execute('SELECT 1 FROM gemini_chats WHERE inquiry_id=?',(inquiry_id,)).fetchone():
-            if not conn.execute('SELECT 1 FROM studio_submissions WHERE inquiry_id=? AND revision=? AND sequence=?',(inquiry_id,revision,inquiry['processed_seq'])).fetchone():
+            # The structured quote form is itself a submission. Opening its chat
+            # receipt must not require the buyer to submit the identical brief again.
+            original_form = revision == 0 and inquiry['processed_seq'] == 1 and conn.execute(
+                'SELECT 1 FROM inquiry_receipts WHERE inquiry_id=?', (inquiry_id,)).fetchone()
+            if not original_form and not conn.execute('SELECT 1 FROM studio_submissions WHERE inquiry_id=? AND revision=? AND sequence=?',(inquiry_id,revision,inquiry['processed_seq'])).fetchone():
                 raise ValueError('brief_not_submitted')
         import json
         facts = {}

@@ -663,7 +663,10 @@ TOOLS += [("record_step", t_record_step, "Record an agent run step."),
           ("get_scoping_history", t_get_scoping_history, "Read private scoping history."),
           ("list_pending_work", t_list_pending_work,
            "List unclaimed sample inquiries, queued changes, unevaluated change"
-           " offers, and needs_information deals awaiting a clarification."),
+           " offers, and needs_information deals awaiting a clarification."
+           " For studio_briefs, use the submitted snapshot on that inquiry and expected_revision"
+           " for intake, scoping and price_inquiry_scope, then compose and check for founder review."
+           " The website assistant owns live replies for Gemini chats."),
           ("submit_change_offer", t_submit_change_offer, "Submit structured change terms."),
           ("reevaluate_offer", t_reevaluate_offer,
            "Re-run a stale estimate: creates a new offer round with the identical terms and"
