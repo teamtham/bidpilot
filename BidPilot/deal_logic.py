@@ -97,11 +97,11 @@ PHASE_LABELS = {
     "needs_fresh_estimate": "Needs a fresh estimate", "ready_for_review": "Ready for review",
     "counter_ready": "Counter ready", "draft_blocked": "Draft blocked", "sent": "Waiting on client",
     "client_picked": "Client picked an option", "change_requested": "Change requested",
-    "booked": "Booked", "rejected": "Rejected", "closed": "Closed",
+    "booked": "Booked", "rejected": "Rejected", "closed": "Closed", "no_fit": "Doesn’t fit",
 }
 
 # Phases where the estimate's fit warnings and the outbound check still matter.
-REVIEW_PHASES = {"ready_for_review", "counter_ready", "draft_blocked", "needs_fresh_estimate",
+REVIEW_PHASES = {"no_fit", "ready_for_review", "counter_ready", "draft_blocked", "needs_fresh_estimate",
                  "needs_estimate"}
 
 
@@ -129,6 +129,8 @@ def phase(deal_status, versions, offers):
         return "rejected"
     if status == "superseded":
         return "sent"
+    if latest.get("verdict") == "decline" and latest.get("estimate"):
+        return "no_fit"          # priced, but no option fits the calendar
     if latest.get("verdict") == "clarify" or not latest.get("options"):
         return "needs_estimate"
     if latest.get("verdict") == "counter":
