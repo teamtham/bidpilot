@@ -608,7 +608,7 @@ function render(){
  if(!ST){document.getElementById('app').innerHTML='<p class="note" style="padding:20px 0">Loading deals…</p>';return}
  var y=window.scrollY,d=DEALS[S.deal];
  var tab=function(id,t){return '<button class="tab" data-act="tab" data-tab="'+id+'"'+(S.tab===id?' aria-current="page"':'')+'>'+t+'</button>'};
- var h='<header class="top"><span class="logo"><i></i>BidPilot</span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button><span class="pill">'+esc(ST.badge||'')+'</span><button class="btn sm" data-act="notes">What’s new</button></header>';
+ var h='<header class="top"><span class="logo"><i></i>BidPilot</span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button><button class="btn sm" data-act="notes">What’s new</button></header>';
  var main=S.tab==='deals'?dealView(d):S.tab==='calendar'?calView():toolsView();
  h+='<div class="shell'+(S.tab==='deals'?'':' wide')+'">'+(S.tab==='deals'?rail():'')+main+'</div>'+sheet()+(S.notes?notesPanel():'')+(S.toast?'<div class="toast" role="status">'+esc(S.toast)+'</div>':'');
  document.getElementById('app').innerHTML=h;window.scrollTo(0,y)}
@@ -726,6 +726,6 @@ def page(badge, fixtures):
             '<style>' + CSS + '</style></head><body>'
             '<h1 style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">BidPilot founder dashboard</h1>'
             '<div id="app"><p>Loading deals…</p></div>'
-            '<noscript>' + badge + '</noscript>'
+            '<noscript>BidPilot needs JavaScript.</noscript>'
             '<script>const FIXTURES = ' + fixtures_json + ';\n</script>'
             '<script>' + JS + '</script></body></html>')
