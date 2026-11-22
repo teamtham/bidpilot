@@ -19,6 +19,15 @@ CREATE TABLE IF NOT EXISTS qwenwork_selections (
 MAX_COMPARABLES = 6
 
 
+
+def skills_root():
+    """The installed QwenWork skills, or this repo's copy when none are installed
+    (a fresh checkout, CI or another machine)."""
+    installed = Path.home() / '.qwenwork/skills'
+    if (installed / 'bidpilot-intake').is_dir():
+        return installed
+    return Path(__file__).resolve().parent.parent / 'bidpilot-build-guide'
+
 def _selection(c, inquiry_id, revision):
     c.executescript(SELECTIONS_SCHEMA)
     return c.execute('SELECT * FROM qwenwork_selections WHERE inquiry_id=? AND revision=?',
@@ -80,7 +89,7 @@ def prompt(c, row, client=None):
     ctx = conversation.context(c, {'inquiry_id': row['inquiry_id']})
     material = {k: ctx[k] for k in ('facts', 'revision')}
     material['buyer_messages'] = [t['body'] for t in ctx['turns'] if t['sender'] == 'buyer']
-    root = Path.home() / '.qwenwork/skills'
+    root = skills_root()
     if row['kind'] == 'brief':
         bank = (root / 'bidpilot-intake/QUESTION_BANK.md').read_bytes()
         if bank != (root / 'bidpilot-scoping/QUESTION_BANK.md').read_bytes():

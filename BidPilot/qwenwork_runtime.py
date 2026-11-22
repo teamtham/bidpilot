@@ -34,6 +34,15 @@ REPAIRABLE = {'invalid_json', 'invalid_chat_answer', 'invalid_fact', 'invalid_fa
               'invalid_commercial_answer', 'ungrounded_production_input'}
 
 
+
+def skills_root():
+    """The installed QwenWork skills, or this repo's copy when none are installed
+    (a fresh checkout, CI or another machine)."""
+    installed = Path.home() / '.qwenwork/skills'
+    if (installed / 'bidpilot-intake').is_dir():
+        return installed
+    return Path(__file__).resolve().parent.parent / 'bidpilot-build-guide'
+
 def _ensure_schema(c):
     c.executescript(SCHEMA)
     if not any(row[1] == 'contract_retries' for row in c.execute('PRAGMA table_info(qwenwork_work)')):
@@ -182,7 +191,7 @@ def prompt(c, row, client=None):
     missing = chat.brief_missing(ctx['facts'])
     public['brief_missing'] = [{'field': m, 'subject': chat.BRIEF_SUBJECTS.get(m.removeprefix('Confirm ').capitalize())}
                                for m in missing]
-    root = Path.home() / '.qwenwork/skills'
+    root = skills_root()
     bank = (root / 'bidpilot-intake/QUESTION_BANK.md').read_bytes()
     if not bank.strip() or bank != (root / 'bidpilot-scoping/QUESTION_BANK.md').read_bytes():
         raise ValueError('question_bank_mismatch')
