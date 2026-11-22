@@ -450,7 +450,8 @@ def create_change_offer(conn, deal_id, version_id, request_id, request):
 
 
 STEP_KEYS = frozenset(("claimed", "intake", "scoping", "engine", "draft", "outbound",
-                       "review", "needs_information", "stale_version", "blocked", "error"))
+                       "review", "needs_information", "stale_version", "blocked", "error",
+                       "chat", "reference", "compose"))
 STEP_STATUSES = frozenset(("running", "ok", "blocked", "error", "skipped"))
 
 
@@ -526,12 +527,13 @@ def record_step(conn, deal_id, offer_id, step_key, status, private_note=None,
                 trigger=None):
     """Append an agent step in the caller's transaction, closing an open run.
 
-    trigger is optional and backward compatible: None (unrecorded), "manual"
-    or "scheduled". Older rows and callers keep working unchanged.
+    trigger is optional and backward compatible: None (unrecorded), "manual",
+    "scheduled" or "api" (QwenWork OpenAPI pipeline). Older rows and callers
+    keep working unchanged.
     """
     if step_key not in STEP_KEYS or status not in STEP_STATUSES:
         raise ValueError("invalid_step_key_or_status")
-    if trigger is not None and trigger not in ("manual", "scheduled"):
+    if trigger is not None and trigger not in ("manual", "scheduled", "api"):
         raise ValueError("invalid_trigger")
     if offer_id and not conn.execute("SELECT 1 FROM offers WHERE id=? AND deal_id=?",
                                      (offer_id, deal_id)).fetchone():

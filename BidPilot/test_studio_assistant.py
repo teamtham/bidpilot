@@ -34,9 +34,55 @@ class StudioAssistantTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def post(self, path, data):
+    def post(self, path, data, fill=True):
+        if fill and path.endswith('/submit'):
+            self.fill_brief()
         code, raw = request(self.base, 'POST', path, data, headers={'Origin':self.base})
         return code, json.loads(raw)
+
+    FILLERS = {'Format':'project_type', 'Production':'production.mode', 'Shoot days':'shoot_days',
+               'Locations':'locations', 'Videos':'video_count', 'Captioned versions':'captions',
+               'Scripting':'scripting', 'Revision rounds':'revision_rounds', 'Deadline':'deadline',
+               'Editing':'editing'}
+
+    def fill_brief(self):
+        """Confirm any required brief field the scenario left empty, so /submit is allowed."""
+        ctx = chat.context(self.c, {'inquiry_id': self.i})
+        with self.c:
+            for name in chat.brief_missing(ctx['facts']):
+                if name.startswith('Confirm '):
+                    continue
+                self.c.execute('INSERT INTO inquiry_facts VALUES (?,?,?,?,?,?,?,?,?)',
+                               (chat.uid(), self.i, 0, self.FILLERS[name], '"x"', 'confirmed',
+                                ctx['processed_sequence'], None, 0))
+
+    def test_incomplete_brief_cannot_be_submitted(self):
+        fact = {'subject':'videos','value':2,'status':'confirmed'}
+        with patch.object(assistant, 'generate', return_value=self.answer(facts=[fact])):
+            self.start('Two reels')
+        ctx = chat.context(self.c, {'inquiry_id':self.i})
+        submission = {'revision':ctx['revision'], 'sequence':ctx['processed_sequence']}
+        state = json.loads(request(self.base, 'GET', self.url+'/state')[1])
+        self.assertEqual(len(state['missing']), 9)
+        self.assertNotIn('Videos', state['missing'])
+        self.assertNotIn('Your budget', state['missing'])
+        self.assertFalse(state['submitted'])
+        self.assertIsNone(state['last_receipt'])
+        code, result = self.post(self.url+'/submit', submission, fill=False)
+        self.assertEqual((code, result['error']), (400, 'brief_incomplete'))
+        self.assertEqual(self.c.execute('SELECT count(*) FROM studio_submissions').fetchone()[0], 0)
+        self.fill_brief()
+        with self.c:
+            self.c.execute("UPDATE inquiry_facts SET status='proposed' WHERE subject='deadline' AND inquiry_id=?", (self.i,))
+        state = json.loads(request(self.base, 'GET', self.url+'/state')[1])
+        self.assertEqual(state['missing'], ['Confirm deadline'])
+        self.assertEqual(self.post(self.url+'/submit', submission, fill=False)[1]['error'], 'brief_incomplete')
+        with self.c:
+            self.c.execute("UPDATE inquiry_facts SET status='excluded' WHERE subject='deadline' AND inquiry_id=?", (self.i,))
+        first = self.post(self.url+'/submit', submission, fill=False)[1]
+        self.assertTrue(first['submitted'])
+        state = json.loads(request(self.base, 'GET', self.url+'/state')[1])
+        self.assertEqual((state['missing'], state['submitted'], state['last_receipt']['id']), ([], True, first['receipt_id']))
 
     def start(self, text='Two reels'):
         code, result = self.post('/inquire', {'text': text, 'request_id': 'start'})
@@ -129,6 +175,28 @@ class StudioAssistantTests(unittest.TestCase):
             page.reload()
             page.get_by_text('A launch film',exact=True).wait_for()
             self.assertEqual(errors,[])
+            browser.close()
+
+    def test_browser_submit_is_optimistic_while_assistant_replies(self):
+        import time
+        from playwright.sync_api import sync_playwright, expect
+        with patch.object(assistant, 'generate', return_value=self.answer()):
+            self.start()
+        def generate(parts):
+            time.sleep(3)
+            return self.answer('Where will viewers watch it?')
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base+self.url)
+            page.get_by_text(self.answer()['reply'], exact=True).wait_for()
+            with patch.object(assistant, 'generate', side_effect=generate):
+                page.locator('#text').fill('A launch film')
+                page.locator('#send').click()
+                expect(page.locator('#text')).to_have_value('', timeout=500)
+                expect(page.locator('#turns .me').filter(has_text='A launch film')).to_be_visible(timeout=500)
+                expect(page.locator('#send')).to_be_disabled(timeout=500)
+                page.get_by_text('Where will viewers watch it?', exact=True).wait_for()
             browser.close()
 
     def test_transport_keeps_certificate_verification(self):
