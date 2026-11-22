@@ -26,6 +26,7 @@ import core
 import deal_logic
 import price_list
 import dashboard_ops
+import change_chat
 import commerce
 import conversation
 import estimating
@@ -602,7 +603,30 @@ class Handler(BaseHTTPRequestHandler):
                 if offer_id is None:
                     return self.send_json({"ok": True, "status": "clarify", "offer_id": None,
                                            "message": "Change request queued for clarification"}, 202)
+                # Price the change straight away with the same engine as a new
+                # brief, so Alex sees what it costs. Idempotent: an agent that
+                # evaluates the same offer later gets this result back.
+                try:
+                    core.evaluate(self.conn, version["deal_id"], offer_id)
+                except Exception as exc:  # Alex can still run the estimate by hand.
+                    try:
+                        self.conn.rollback()
+                    except sqlite3.Error:
+                        pass
+                    sys.stderr.write("change estimate deferred: %s\n" % type(exc).__name__)
                 return self.send_json({"ok": True, "status": "offered", "offer_id": offer_id})
+            chat = re.fullmatch(r"/p/([^/]+)/change-chat", path)
+            if chat:
+                try:
+                    if data.get("reset") is True:
+                        result = change_chat.reset(self.conn, chat[1])
+                    else:
+                        result = change_chat.message(self.conn, chat[1], data.get("text"))
+                except ValueError as exc:
+                    code = 404 if str(exc) == "not_found" else 400
+                    return self.send_json({"ok": False, "error": str(exc)}, code)
+                return self.send_json({"ok": True, **{k: result[k] for k in
+                                       ("terms", "changed", "turns", "ready", "client_words")}})
             return self.not_found()
         finally:
             self.conn.close()
@@ -727,8 +751,15 @@ h3{font:500 30px/1.1 var(--display);margin:0;text-wrap:balance}h4{font:500 20px 
 .formpeek{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;border:1px solid var(--s-line);border-radius:10px;padding:16px;background:#fff;margin:0}.formpeek label{display:grid;gap:4px;font-size:12.5px;color:var(--s-mute)}.formpeek .wide{grid-column:1/-1}.formpeek input,.formpeek textarea{font:13.5px var(--ui);color:var(--s-ink);border:1px solid var(--s-line);border-radius:6px;padding:8px 10px;background:#fff;width:100%}.formpeek textarea{min-height:72px;resize:vertical}.formpeek p{margin:0}
 .booked{display:grid;gap:14px;max-width:560px}.booked .media{max-width:560px}
 .library{border-top:1px solid var(--s-line);padding-top:22px;max-width:760px}.library>*{margin-bottom:10px!important}.library h2{font:500 22px var(--display);margin:0}.library p{margin:0;color:var(--s-mute)}.library label{font-size:12.5px;color:var(--s-mute);margin-right:6px}.library select,.library input{font:13.5px var(--ui);color:var(--s-ink);border:1px solid var(--s-line);border-radius:6px;padding:7px 10px;background:#fff;margin-right:10px}.library form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.library button{font:600 13px var(--ui);border-radius:6px;padding:8px 14px;border:1px solid var(--s-line);background:#fff;color:var(--s-ink);cursor:pointer}
+.change{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;align-items:start;border-top:1px solid var(--s-line);padding-top:22px}.change .wide,.change-head{grid-column:1/-1}.change-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.chat{background:#fff;border:1px solid var(--s-line);border-radius:10px;display:flex;flex-direction:column;min-width:0}.chat-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--s-line)}.chat-head b{font-size:13.5px}.ava{width:30px;height:30px;border-radius:50%;background:var(--s-dark);color:#fff;font:600 12px/30px var(--ui);text-align:center;flex:none}.live{margin-left:auto;font-size:11.5px;color:var(--ok);display:inline-flex;align-items:center;gap:6px}.live::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.msgs{padding:14px;display:grid;gap:10px;min-height:220px;max-height:440px;overflow-y:auto;align-content:start}.m{max-width:86%;padding:9px 12px;border-radius:12px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}.m.bot{background:var(--s-tint);border-top-left-radius:4px}.m.me{background:var(--s-dark);color:#fff;justify-self:end;border-top-right-radius:4px}.m.wait{color:var(--s-mute)}
+.compose{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--s-line);align-items:center;margin:0}.compose input{flex:1;min-width:0;border:1px solid var(--s-line);border-radius:8px;padding:9px 10px;font:13.5px var(--ui);color:var(--s-ink);background:#fff}.compose .btn{padding:8px 14px}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.summary{background:#fff;border:1px solid var(--s-line);border-radius:10px;padding:16px;display:grid;gap:12px;min-width:0}.summary dl{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;margin:0;font-size:13.5px}.summary dt{color:var(--s-mute)}.summary dd{margin:0;font-variant-numeric:tabular-nums}.summary del{color:var(--s-mute);margin-right:4px}.summary ins{text-decoration:none;font-weight:600}.summary .btn.p{justify-content:center}
+.said{font-size:12.5px;background:var(--s-tint);border-radius:8px;padding:8px 10px;overflow-wrap:anywhere}.lock{font-size:12px;color:var(--s-mute)}.sent{display:none;background:#e4f3e7;color:#22622f;border-radius:8px;padding:10px 12px;font-size:13px}.summary.done .sent{display:block}.summary.done #cc-send,.summary.done #cc-reset{display:none}
+.sent-note{background:#e4f3e7;color:#22622f;border-radius:8px;padding:12px 14px;font-size:13.5px}.collapsed{border:1px dashed var(--s-line);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--s-mute);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.collapsed b{color:var(--s-ink)}.btn.link{background:none;border:0;padding:0;color:var(--s-brown);text-decoration:underline;font-weight:500;justify-self:start}
 #msg{margin:0;font-size:13px}#msg:empty{display:none}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--s-brown);outline-offset:3px}
-@media(max-width:820px){.hero2,.optgrid,.formpeek{grid-template-columns:1fr}.site-body,.site-top{padding-left:16px;padding-right:16px}.btn{white-space:normal}h3{font-size:26px}}
+@media(max-width:820px){.hero2,.optgrid,.formpeek,.change{grid-template-columns:1fr}.site-body,.site-top{padding-left:16px;padding-right:16px}.btn{white-space:normal}h3{font-size:26px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 """
 
@@ -772,6 +803,66 @@ def _client_label(label, counter):
 
 def _plural(n, one, many=None):
     return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def _change_chat_html(conn, version, preview, counter_design, change_panel):
+    """The studio-assistant change chat that replaced "Explore studio work"."""
+    sent = conn.execute("SELECT 1 FROM messages WHERE version_id=? AND direction='inbound'",
+                        (version["id"],)).fetchone()
+    head = ('<div class="change-head"><h4>' + ('Want something else changed?' if counter_design else 'Want something changed?') +
+            '</h4><span class="small muted">Tell the studio assistant. I review every change myself.</span></div>')
+    if sent and not preview:
+        return ('<section class="change" id="change">' + head + '<div class="sent-note wide" role="status">'
+                '<b>Your change request is with Alex.</b> I\'ll check the calendar and reply with an updated proposal. '
+                'This proposal stays open until then.</div></section>')
+    try:
+        st = change_chat.state(conn, version)
+    except (KeyError, TypeError, ValueError):
+        return ''
+    base, terms = st["base"], st["terms"]
+
+    def fmt(key, value):
+        if value is None:
+            return 'Not given'
+        if key == 'deadline':
+            return deal_logic.client_date(value)
+        if key == 'budget':
+            return deal_logic.client_amount(value)
+        return str(value)
+
+    def cell(key):
+        if key in st["changed"]:
+            return '<del>' + _esc(fmt(key, base.get(key))) + '</del> <ins>' + _esc(fmt(key, terms.get(key))) + '</ins>'
+        return _esc(fmt(key, terms.get(key)))
+    turns = [{"sender": "assistant", "text": change_chat.greeting(base)}] + st["turns"]
+    msgs = ''.join('<div class="m ' + ('me' if t["sender"] == "client" else 'bot') + '">' + _esc(t["text"]) + '</div>'
+                   for t in turns)
+    n = len(st["changed"])
+    disabled = ' disabled' if preview else ''
+    said = ('You said: "' + st["client_words"] + '"') if st["client_words"] else ''
+    return (
+        '<section class="change" id="change" data-base="' + _esc(json.dumps(base)) + '">' + head +
+        '<div class="chat"><div class="chat-head"><span class="ava" aria-hidden="true">AT</span><div><b>Studio assistant</b>'
+        '<div class="small muted">Turns your change into clear terms for me</div></div><span class="live">Live</span></div>'
+        '<div class="msgs" id="cc-msgs" aria-live="polite">' + msgs + '</div>'
+        '<form class="compose" id="cc-form"><label for="cc-in" class="sr">Message the studio assistant</label>'
+        '<input id="cc-in" type="text" maxlength="1000" autocomplete="off" placeholder="' +
+        ('Chat opens on the client\'s link' if preview else 'Say what you\'d like changed') + '"' + disabled + '>'
+        '<button class="btn p" type="submit"' + disabled + '>Send</button></form></div>'
+        '<aside class="summary" id="cc-card"><div class="row between"><h4>Your change so far</h4><span class="small muted" id="cc-count">' +
+        (str(n) + ' change' + ('s' if n != 1 else '') if n else 'Nothing yet') + '</span></div><dl>'
+        '<dt>Videos</dt><dd id="cc-count-v">' + cell('count') + '</dd>'
+        '<dt>Captioned versions</dt><dd id="cc-captions">' + cell('captions') + '</dd>'
+        '<dt>Deadline</dt><dd id="cc-deadline">' + cell('deadline') + '</dd>'
+        '<dt>Your budget</dt><dd id="cc-budget">' + cell('budget') + '</dd></dl>'
+        '<div class="said" id="cc-said"' + ('' if said else ' hidden') + '>' + _esc(said) + '</div>'
+        '<button class="btn p" type="button" id="cc-send" onclick="sendChange(this)"' + ('' if n and not preview else ' disabled') + '>Send to Alex</button>'
+        '<div class="sent" role="status">Sent. Alex will check the calendar and reply with an updated proposal. This proposal stays open until then.</div>'
+        '<span class="lock">Nothing changes until I reply. The assistant can\'t agree prices or dates.</span>'
+        '<button class="btn link" type="button" id="cc-reset" onclick="resetChat()"' + ('' if n and not preview else ' hidden') + '>Start over</button></aside>'
+        + ('' if preview else '<div class="collapsed wide"><span><b>Prefer a form?</b> The four things you can change, same as before.</span>'
+           '<button class="btn link" type="button" aria-controls="change-panel" onclick="toggleChange(this)">Open the form</button></div>' + change_panel) +
+        '</section>')
 
 
 def render_client_html(conn, version, preview=False, preview_ids=None):
@@ -948,9 +1039,10 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
               '<form onsubmit="event.preventDefault(); const chosen=document.querySelector(\'input[name=proposal-option]:checked\'); if(chosen) {this.querySelector(\'button\').disabled=true; accept(chosen.value,this.querySelector(\'button\'));} else setMsg(\'Pick an option first.\'); return false"><button class="btn p" id="accept-btn" type="submit">' + _esc(accept_text) + '</button></form>')
     change_label = 'Request another change' if counter_design else 'Request a change'
     change_action = ('' if preview or accepted else
-                     '<button class="btn g" type="button" aria-controls="change-panel" onclick="toggleChange()">' +
+                     '<button class="btn g" type="button" aria-controls="change" onclick="jumpToChat()">' +
                      change_label + '</button>')
-    change_panel = '<div id="change-panel" hidden>' + change_form + '</div>'
+    change_panel = '<div id="change-panel" class="wide" hidden>' + change_form + '</div>'
+    change_html = '' if accepted else _change_chat_html(conn, version, preview, counter_design, change_panel)
 
     # -- schedule: a rough plan from the quote date to each delivery date
     def as_date(value):
@@ -1019,24 +1111,23 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
                      '</div>' + ('<div>' + schedule + '</div>' if schedule and selected_terms.get('phases') else '') +
                      '<div class="hero2"><div>' + side_media + '</div><div class="col"><h4>Not quite right?</h4>'
                      '<p class="lede">Ask for another change and I\'ll look at it. Nothing is booked until you accept one option.</p>' +
-                     sections + '<div class="row">' + change_action + '</div></div></div>' + change_panel)
+                     sections + '<div class="row">' + change_action + '</div></div></div>' + change_html)
     else:
         body_html = ('<div class="hero2 top"><div class="col"><h3>' + _esc(hero_title) +
                      '</h3><p class="lede">' + _esc(hero_intro) + '</p>' + sections + cards_html + schedule +
-                     '<div class="row">' + action + change_action + '</div>' + change_panel +
+                     '<div class="row">' + action + change_action + '</div>' +
                      '<span class="small muted">Once you accept, I\'ll confirm the booking and the shoot day by email.</span>'
-                     '</div>' + media_column + '</div>')
+                     '</div>' + media_column + '</div>' + change_html)
     # Confirmed-booking amendments retain their existing renderer and handlers.
     # Library package selectors must obey the same exact preview/release subset.
     allowed_ids = {r['id'] for r in option_rows}
     story_html = re.sub(r'<option value="([^"]+)" data-count="[^"]+">.*?</option>',
                         lambda match: match.group(0) if match.group(1) in allowed_ids else '', story_html)
+    # The change chat replaced the "Explore studio work" library on live
+    # proposals; a confirmed booking keeps its amendment section.
     library_start = story_html.find('<section><h2>Explore studio work</h2>')
-    if library_start >= 0:
-        body_html += story_html[library_start:].replace('<section><h2>Explore studio work</h2>',
-                                                         '<section class="library"><h2>Explore studio work</h2>', 1)
-    elif version['status'] == 'confirmed':
-        body_html += '<div class="library">' + story_html + '</div>'
+    if version['status'] == 'confirmed':
+        body_html += '<div class="library">' + (story_html[library_start:] if library_start >= 0 else story_html) + '</div>'
     if version['status'] == 'confirmed':
         body_html += '<p class="small muted">Booking confirmed</p>'
     client = conn.execute('SELECT client,sample_data FROM deals WHERE id=?', (version['deal_id'],)).fetchone()
@@ -1072,10 +1163,97 @@ function stableRequestId(payload) {{
 function setMsg(text) {{
   document.getElementById('msg').textContent = text;
 }}
-function toggleChange() {{
+function toggleChange(btn) {{
   const panel = document.getElementById('change-panel');
+  if (!panel) return;
   panel.hidden = !panel.hidden;
+  if (btn) btn.textContent = panel.hidden ? 'Open the form' : 'Hide the form';
   if (!panel.hidden) {{ panel.scrollIntoView({{block: 'nearest'}}); const first = document.getElementById('rc-count'); if (first) first.focus(); }}
+}}
+function jumpToChat() {{
+  const box = document.getElementById('change');
+  if (!box) return;
+  const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  box.scrollIntoView({{behavior: still ? 'auto' : 'smooth', block: 'start'}});
+  const input = document.getElementById('cc-in');
+  if (input && !input.disabled) setTimeout(() => input.focus({{preventScroll: true}}), still ? 0 : 400);
+}}
+// Change chat: the studio assistant fills the four change terms; the client
+// confirms on the card and Send to Alex posts them as a change request.
+let ccState = null;
+function ccFmt(key, value) {{
+  if (value === null || value === undefined) return 'Not given';
+  if (key === 'deadline') {{ const d = new Date(value + 'T00:00:00'); return d.toLocaleDateString('en-GB', {{day: 'numeric', month: 'short'}}); }}
+  if (key === 'budget') return 'S$' + Number(value).toLocaleString('en-SG', {{maximumFractionDigits: Number.isInteger(Number(value)) ? 0 : 2, minimumFractionDigits: Number.isInteger(Number(value)) ? 0 : 2}});
+  return String(value);
+}}
+function ccRender(st) {{
+  ccState = st;
+  const box = document.getElementById('change');
+  const base = JSON.parse(box.dataset.base || '{{}}');
+  const msgs = document.getElementById('cc-msgs');
+  const first = msgs.firstElementChild;
+  msgs.replaceChildren(first);
+  st.turns.forEach(t => {{ const m = document.createElement('div'); m.className = 'm ' + (t.sender === 'client' ? 'me' : 'bot'); m.textContent = t.text; msgs.appendChild(m); }});
+  msgs.scrollTop = msgs.scrollHeight;
+  const ids = {{count: 'cc-count-v', captions: 'cc-captions', deadline: 'cc-deadline', budget: 'cc-budget'}};
+  Object.keys(ids).forEach(k => {{
+    const dd = document.getElementById(ids[k]); dd.replaceChildren();
+    if (st.changed.includes(k)) {{ const del = document.createElement('del'); del.textContent = ccFmt(k, base[k]); const ins = document.createElement('ins'); ins.textContent = ccFmt(k, st.terms[k]); dd.append(del, ' ', ins); }}
+    else dd.textContent = ccFmt(k, st.terms[k]);
+  }});
+  const n = st.changed.length;
+  document.getElementById('cc-count').textContent = n ? n + ' change' + (n === 1 ? '' : 's') : 'Nothing yet';
+  const said = document.getElementById('cc-said');
+  said.hidden = !st.client_words; said.textContent = st.client_words ? 'You said: "' + st.client_words + '"' : '';
+  document.getElementById('cc-send').disabled = !n;
+  document.getElementById('cc-reset').hidden = !n;
+}}
+async function ccPost(payload) {{
+  const res = await fetch(location.pathname + '/change-chat', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(payload)}});
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'unavailable');
+  ccRender(data);
+}}
+(function () {{
+  const form = document.getElementById('cc-form');
+  if (!form) return;
+  form.addEventListener('submit', async function (e) {{
+    e.preventDefault();
+    const input = document.getElementById('cc-in'), btn = form.querySelector('button');
+    const text = input.value.trim();
+    if (!text || btn.disabled) return;
+    const msgs = document.getElementById('cc-msgs');
+    const mine = document.createElement('div'); mine.className = 'm me'; mine.textContent = text; msgs.appendChild(mine);
+    const wait = document.createElement('div'); wait.className = 'm bot wait'; wait.textContent = 'Thinking…'; msgs.appendChild(wait);
+    msgs.scrollTop = msgs.scrollHeight;
+    input.value = ''; btn.disabled = true; input.disabled = true;
+    try {{ await ccPost({{text: text}}); }}
+    catch (err) {{ mine.remove(); wait.remove(); input.value = text; setMsg('The assistant could not reply just now. Try again, or use the form below.'); }}
+    finally {{ btn.disabled = false; input.disabled = false; input.focus(); }}
+  }});
+}})();
+async function resetChat() {{
+  try {{ await ccPost({{reset: true}}); }} catch (e) {{ setMsg('Could not start over. Try again.'); }}
+}}
+async function sendChange(btn) {{
+  if (!ccState || !ccState.changed.length || btn.disabled) return;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const t = ccState.terms;
+  const terms = {{count: t.count, captions: t.captions, deadline: t.deadline, budget: t.budget}};
+  const body = ccState.client_words;
+  try {{
+    const res = await fetch(location.pathname + '/request-change', {{method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{body: body, terms: terms, request_id: stableRequestId({{body: body, terms: terms}})}})}});
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'unknown error');
+    document.getElementById('cc-card').classList.add('done');
+    document.getElementById('cc-in').disabled = true;
+    document.querySelector('#cc-form button').disabled = true;
+  }} catch (e) {{
+    btn.disabled = false; btn.textContent = 'Send to Alex';
+    setMsg('Could not send your change: ' + e.message + '. Sending again is safe.');
+  }}
 }}
 document.querySelectorAll('input[name=proposal-option]').forEach(function (input) {{
   input.addEventListener('change', function () {{
@@ -1353,6 +1531,7 @@ def state(conn):
                                        (v["id"],)).fetchone()
             versions.append({
                 "version_id": v["id"], "version_no": v["version_no"], "status": v["status"],
+                "offer_id": v["offer_id"],
                 "outbound_status": v["outbound_status"], "draft": v["draft_body"],
                 "page": db.uj(v["page_json"]) if v["page_json"] else None,
                 "selected_option_id": v["selected_option_id"],
