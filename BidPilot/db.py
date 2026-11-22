@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS capacity_impacts (
 CREATE TABLE IF NOT EXISTS capacity_revisions (revision INTEGER PRIMARY KEY,
   seed_hash TEXT, snapshot_json TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS calendar_settings (id INTEGER PRIMARY KEY CHECK(id=1), working_hours REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS price_list_items (id TEXT PRIMARY KEY, name TEXT NOT NULL,
+  unit TEXT NOT NULL, hours REAL NOT NULL, price_sgd REAL NOT NULL, sort INTEGER NOT NULL,
+  updated_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS calendar_blocks (id TEXT PRIMARY KEY, week_ending TEXT NOT NULL,
   hours REAL NOT NULL, reason TEXT NOT NULL, created_at REAL NOT NULL);
 """
@@ -92,6 +95,11 @@ _MIGRATIONS = [
     # Latest outbound-check violations for the founder (what to remove).
     ("proposal_versions", "check_violations_json",
      "ALTER TABLE proposal_versions ADD COLUMN check_violations_json TEXT"),
+    # The founder's own copy of the client link (owner-only; the client page
+    # itself is still resolved by token hash). Lets the dashboard offer
+    # "Go to page" and "Copy link" after a reload.
+    ("proposal_versions", "client_url_private",
+     "ALTER TABLE proposal_versions ADD COLUMN client_url_private TEXT"),
 ]
 
 def _ensure_columns(conn):

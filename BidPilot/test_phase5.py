@@ -230,11 +230,16 @@ class Phase5Tests(unittest.TestCase):
         self.assertTrue(res["ok"], text)
         url = res["url"]
         self.assertTrue(url.startswith("/p/"))
-        # dashboard has a persistent release panel outside the rerendered root
+        # the sent card offers Go to page / Copy link from the founder's
+        # private copy of the client link, which survives a reload
         status, html = self.get("/dashboard")
         self.assertEqual(status, 200)
-        self.assertIn('id="release-panel"', html)
-        self.assertLess(html.index('id="release-panel"'), html.index('id="root"'))
+        for marker in ("Go to page", "Copy link", "client_url"):
+            self.assertIn(marker, html)
+        _, text = self.get("/api/state")
+        latest = [v for d in json.loads(text)["deals"] for v in d["versions"]
+                  if v["version_id"] == version_id][0]
+        self.assertEqual(latest["client_url"], url)
         # client page: public terms only
         status, html = request(self.base, "GET", url, None, {})
         self.assertEqual(status, 200)

@@ -216,14 +216,12 @@ class HttpTests(unittest.TestCase):
         f = self.flow("timeline-1")
         status, html = self.get("/")
         self.assertEqual(status, 200)
-        # the private founder timeline is served and built from run steps
-        self.assertIn("Deal timeline", html)
-        self.assertIn("stageTimelineHtml", html)
-        self.assertIn("stage-timeline", html)
-        self.assertIn("STAGE_DEFS", html)
-        for label in ("Intake", "Scoping", "Engine evaluation", "Negotiator draft",
-                      "Outbound check", "Founder review", "Client response", "Booking"):
-            self.assertIn(label, html)
+        # The wireframe-v5 dashboard shows a capped, plain-language History
+        # per deal (built from run steps) and a full Run log in Studio tools.
+        for marker in ("History", "histHtml", "steps_total", "Run log",
+                       "Brief received", "Estimate made", "Proposal sent",
+                       "You confirmed the booking"):
+            self.assertIn(marker, html)
         # state() exposes the backward-compatible trigger field on every step
         d = self.deal_state(f["deal_id"])
         self.assertTrue(d["steps"])
@@ -247,9 +245,11 @@ class HttpTests(unittest.TestCase):
     def test_founder_dashboard_serves_what_changed_and_needs_info(self):
         status, html = self.get("/")
         self.assertEqual(status, 200)
-        for marker in ("whatChangedHtml", "What changed", "reasonLinkHtml",
-                       "reason-links", "needs-info", "Needs info",
-                       "diff-old", "diff-new", "needs_information"):
+        # Changed terms show inline in the Brief ("was ..."); needs-info deals
+        # list exactly what is missing; plain-language warnings replace codes.
+        for marker in ("(was ", "changed_fields", "Needs info", "Missing",
+                       "needs_information", "I need a bit more before I can price this",
+                       "Not enough time before", "Price is under your minimum"):
             self.assertIn(marker, html)
 
     def test_client_page_never_exposes_comparison_or_needs_info(self):
