@@ -775,7 +775,12 @@ h3{font:500 30px/1.1 var(--display);margin:0;text-wrap:balance}h4{font:500 20px 
 .banner{background:var(--s-tint);border-radius:8px;padding:10px 14px;font-size:13px;margin:0}.replacement{background:var(--s-tint);border-radius:8px;padding:10px 14px;font-size:13px}
 .opt{border:1px solid var(--s-line);border-radius:10px;padding:16px;background:#fff;display:grid;gap:10px;position:relative;align-content:start;min-width:0}.optgrid .opt{cursor:pointer}.optgrid .opt:hover{border-color:var(--s-brown)}.opt>input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}.optgrid .opt:has(input:checked){border:2px solid var(--s-brown);box-shadow:0 0 0 4px var(--s-tint);padding:15px}.opt:has(input:focus-visible){outline:2px solid var(--s-brown);outline-offset:3px}.opt:has(input:disabled){cursor:default}
 .opt-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.price{font:500 26px var(--display);font-variant-numeric:tabular-nums}.fit{font-size:12.5px;font-weight:600}.fit.ok{color:var(--ok)}.fit.over{color:var(--warn)}
-.optgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.ticks{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:13px}.ticks li{display:flex;gap:8px}.ticks li:before{content:'';flex:none;width:12px;height:7px;margin-top:5px;border-left:2px solid var(--s-brown);border-bottom:2px solid var(--s-brown);transform:rotate(-45deg)}
+.optgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.cp{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;align-items:start}.cp-main{display:grid;gap:16px;min-width:0}.cp-main h3{margin:0}.cp-main .lede{margin:4px 0 0}
+.cp .optgrid{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.cp .opt{padding:14px;gap:6px}.cp .optgrid .opt:has(input:checked){padding:13px}.cp .opt h5{margin:0;font-size:14px}.cp .price{font-size:24px}.cp .ticks{font-size:12.5px}
+.shared{margin:0;font-size:13px;color:var(--s-mute)}.shared b{color:var(--s-ink);font-weight:600}
+.cp-side{display:block;border-left:1px solid var(--s-line);padding-left:22px;min-width:0}.cp-side .notes{display:grid;gap:18px}.cp-side>summary{display:none}.cp-side .note{display:grid;gap:4px}.cp-side h4{margin:0;font:600 11.5px var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--s-mute)}.cp-side p{margin:0;font-size:13px}.cp-side .media{max-width:100%}
+.cp-side .replacement{background:none;padding:0;border-radius:0;font-size:13px}.ticks{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:13px}.ticks li{display:flex;gap:8px}.ticks li:before{content:'';flex:none;width:12px;height:7px;margin-top:5px;border-left:2px solid var(--s-brown);border-bottom:2px solid var(--s-brown);transform:rotate(-45deg)}
 .gantt{display:grid;gap:6px;font-size:12px}.g-row{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center}.g-bar{height:14px;background:var(--s-tint);border-radius:3px;position:relative}.g-bar i{position:absolute;top:0;bottom:0;background:var(--s-brown);border-radius:3px}.g-bar i.lite{background:#b98b6c}.g-axis{display:flex;justify-content:space-between}
 .story{display:grid;gap:6px}.story h4{font-size:18px}
 .media{position:relative;aspect-ratio:16/9;max-width:100%;border-radius:6px;overflow:hidden;color:#fff;isolation:isolate;background:linear-gradient(180deg,#1f1611,#3d2a1f)}.media.reel{aspect-ratio:9/16}.media.photo{aspect-ratio:4/3}
@@ -799,7 +804,7 @@ h3{font:500 30px/1.1 var(--display);margin:0;text-wrap:balance}h4{font:500 20px 
 .said{font-size:12.5px;background:var(--s-tint);border-radius:8px;padding:8px 10px;overflow-wrap:anywhere}.lock{font-size:12px;color:var(--s-mute)}.sent{display:none;background:#e4f3e7;color:#22622f;border-radius:8px;padding:10px 12px;font-size:13px}.summary.done .sent{display:block}.summary.done #cc-send,.summary.done #cc-reset{display:none}
 .sent-note{background:#e4f3e7;color:#22622f;border-radius:8px;padding:12px 14px;font-size:13.5px}.collapsed{border:1px dashed var(--s-line);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--s-mute);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.collapsed b{color:var(--s-ink)}.btn.link{background:none;border:0;padding:0;color:var(--s-brown);text-decoration:underline;font-weight:500;justify-self:start}
 #msg{margin:0;font-size:13px}#msg:empty{display:none}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--s-brown);outline-offset:3px}
-@media(max-width:820px){.hero2,.optgrid,.formpeek,.change{grid-template-columns:1fr}.site-body,.site-top{padding-left:16px;padding-right:16px}.btn{white-space:normal}h3{font-size:26px}}
+@media(max-width:820px){.cp{grid-template-columns:1fr;gap:18px}.cp-side{border:1px solid var(--s-line);border-radius:8px;padding:10px 14px;background:#fff}.cp-side>summary{display:list-item;font-weight:600;cursor:pointer}.cp-side[open]>summary{margin-bottom:12px}.hero2,.optgrid,.formpeek,.change{grid-template-columns:1fr}.cp .optgrid{grid-template-columns:1fr 1fr}.site-body,.site-top{padding-left:16px;padding-right:16px}.btn{white-space:normal}h3{font-size:26px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 """
 
@@ -1036,6 +1041,27 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
             ticks.append(_plural(terms['revision_rounds'], 'revision round') + ' included')
         return ''.join('<li>' + _esc(t) + '</li>' for t in ticks)
 
+    def counter_ticks(terms):
+        # What a counter card can say beyond its headline and price. Captions
+        # that cover every video read as one line, so options compare evenly.
+        ticks = []
+        caps = terms.get('caption_versions')
+        if caps is not None:
+            ticks.append('Captions on every video' if caps == terms.get('deliverables') else
+                         'No captions' if caps == 0 else _plural(caps, 'captioned version'))
+        if terms.get('shoot_days'):
+            ticks.append(_plural(terms['shoot_days'], 'shoot day') +
+                         (', ' + _plural(terms['locations'], 'location') if terms.get('locations') else ''))
+        if 'revision_rounds' in terms:
+            ticks.append(_plural(terms['revision_rounds'], 'round') + ' of changes')
+        return ticks
+
+    all_terms = [db.uj(r['public_terms_json']) for r in option_rows]
+    shared_ticks = []
+    if counter_design and all_terms:
+        shared_ticks = [t for t in counter_ticks(all_terms[0]) if all(t in counter_ticks(x) for x in all_terms[1:])]
+    any_phased = any(t.get('phases') for t in all_terms)
+
     option_cards = []
     accept_labels = {}
     for row in option_rows:
@@ -1047,8 +1073,8 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
         if has_budget:
             difference = round(terms['price_sgd'] - budget, 2)
             if counter_design:
-                fit_text = ('Matches your budget' if difference == 0 else
-                            money(abs(difference)) + (' over your budget' if difference > 0 else ' under your budget'))
+                fit_text = ('Matches budget' if difference == 0 else
+                            money(abs(difference)) + (' over budget' if difference > 0 else ' under budget'))
             else:
                 fit_text = ('Your budget: ' + money(budget) + '. ' +
                             ('This proposal fits it.' if difference <= 0 else
@@ -1059,9 +1085,10 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
                  ' data-accept="' + _esc(accept_labels[row['id']]) + '"' +
                  (' checked' if checked else '') + (' disabled' if accepted else '') + '>')
         if counter_design:
+            own = ''.join('<li>' + _esc(t) + '</li>' for t in counter_ticks(terms) if t not in shared_ticks)
             body = ('<span class="tag">' + _esc(label) + '</span><h5>' + _esc(headline(terms)) +
                     '</h5><span class="price">' + money(terms['price_sgd']) + '</span>' + fit +
-                    '<ul class="ticks">' + tick_list(terms) + '</ul>')
+                    ('<ul class="ticks">' + own + '</ul>' if own else ''))
         else:
             body = ('<div class="opt-head"><h5>' + _esc(label) + '</h5><span class="price">' +
                     money(terms['price_sgd']) + '</span></div>' + fit + '<ul class="ticks"><li>' +
@@ -1138,20 +1165,40 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
                      'and reference links. On shoot day, plan for a quiet space while I set up.</span></div>'
                      '<div class="row">' + action + '</div></div>')
     elif counter_design:
-        replaced = ''
-        if previous_published and previous_published['published_at']:
-            replaced = ('This replaces the proposal from ' +
-                        datetime.fromtimestamp(previous_published['published_at'], STUDIO_TZ).strftime('%d %b, %H:%M').lstrip('0') + '. ')
+        side = []
+        asked = []
+        if offer.get('deliverables') and offer.get('deadline'):
+            asked.append(_plural(offer['deliverables'], 'video') + ' by ' + when(offer['deadline']))
+        if has_budget:
+            asked.append('about ' + money(budget))
+        if asked:
+            side.append('<div class="note"><h4>Your brief</h4><p>' + _esc(', '.join(asked)) + '</p></div>')
+        side.append('<div class="note"><h4>' + ('Why options' if not single else 'Why it changed') + '</h4><p>' + _esc(hero_intro) + '</p></div>')
+        side.extend('<div class="note"><h4>' + _esc(sec.get('title', '')) + '</h4><p>' + _esc(sec.get('body', '')) + '</p></div>'
+                    for sec in composed['sections'])
+        if any_phased:
+            side.append('<div class="note"><h4>Phased</h4><p>The launch videos come first and the rest follow.</p></div>')
         side_media = (featured if picks else
-                      _media_html('/stock/street.mp4', shot='From my recent work: launch teaser, then a follow-up series'))
-        body_html = ('<div class="replacement">' + _esc(replaced) + _esc(hero_intro) + '</div>'
-                     '<div class="row between"><h3>' + _esc(hero_title) + '</h3>' + budget_html + '</div>' +
-                     cards_html + '<div class="row">' + action +
-                     ('' if preview or accepted or single else '<span class="small muted">Pick a card, then accept.</span>') +
-                     '</div>' + ('<div>' + schedule + '</div>' if schedule and selected_terms.get('phases') else '') +
-                     '<div class="hero2"><div>' + side_media + '</div><div class="col"><h4>Not quite right?</h4>'
-                     '<p class="lede">Ask for another change and I\'ll look at it. Nothing is booked until you accept one option.</p>' +
-                     sections + '<div class="row">' + change_action + '</div></div></div>' + change_html)
+                      _media_html('/stock/street.mp4', shot='Launch teaser, then a follow-up series'))
+        side.append('<div class="note"><h4>Similar work</h4>' + side_media + '</div>')
+        if previous_published and previous_published['published_at']:
+            side.append('<div class="note"><h4>Replaces</h4><p class="replacement">The proposal from ' + _esc(
+                datetime.fromtimestamp(previous_published['published_at'], STUDIO_TZ).strftime('%d %b, %H:%M').lstrip('0')) +
+                '.</p></div>')
+        shared = ('<p class="shared"><b>Every option:</b> ' + _esc(', '.join(shared_ticks)) + '</p>'
+                  if shared_ticks and not single else
+                  '<ul class="ticks">' + ''.join('<li>' + _esc(t) + '</li>' for t in shared_ticks) + '</ul>' if shared_ticks else '')
+        body_html = ('<div class="cp">'
+                     '<div class="cp-main"><div><h3>' + _esc(hero_title) + '</h3>'
+                     '<p class="lede">' + ('Each option keeps one thing you asked for.' if not single else
+                                           'Here is what fits your calendar and budget.') + '</p></div>' +
+                     cards_html + shared + '<div class="row">' + action +
+                     ('' if preview or accepted else '<span class="small muted">Nothing is booked until you accept.</span>') +
+                     '</div>' + (schedule if schedule and selected_terms.get('phases') else '') + '</div>'
+                     '<details class="cp-side" open><summary>' + ('Why options, and similar work' if not single else 'Why it changed, and similar work') + '</summary><div class="notes">' +
+                     ''.join(side) + '</div></details>'
+                     '<script>if(matchMedia("(max-width:820px)").matches)document.currentScript.previousElementSibling.removeAttribute("open")</script>'
+                     '</div>' + change_html)
     else:
         body_html = ('<div class="hero2 top"><div class="col"><h3>' + _esc(hero_title) +
                      '</h3><p class="lede">' + _esc(hero_intro) + '</p>' + sections + cards_html + schedule +
