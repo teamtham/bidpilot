@@ -388,7 +388,10 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/api/price-list", "/api/price-list-estimate", "/api/send-question"):
             try:
                 if path == "/api/price-list":
-                    return self.send_json({"ok": True, "items": price_list.save(self.conn, data)})
+                    saved = price_list.save(self.conn, data)
+                    template = (price_list.save_template_settings(self.conn, data["template"])
+                                if isinstance(data.get("template"), dict) else None)
+                    return self.send_json({"ok": True, "items": saved, "template": template})
                 if path == "/api/send-question":
                     return self.send_json(core.send_question(self.conn, data.get("deal_id"), data.get("question")))
                 return self.send_json({"ok": True, **price_list.estimate(self.conn, data)})
@@ -1754,7 +1757,8 @@ def state(conn):
                     deliverables=project["deliverables"] if project else None,
                     shoot_days=project["shoot_days"] if project else None)
     return {"badge": SAMPLE_BADGE, "capacity": panel, "deals": deals, "inbox": inbox,
-            "price_list": price_list.items(conn), "portfolio": portfolio_items}
+            "price_list": price_list.items(conn), "promo_template": price_list.template_settings(conn),
+            "portfolio": portfolio_items}
 
 
 def _has_table(conn, name):
