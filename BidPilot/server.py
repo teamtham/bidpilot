@@ -434,6 +434,13 @@ class Handler(BaseHTTPRequestHandler):
             res = core.rotate_token(self.conn, data["version_id"])
             return self.send_json(_explained(res), 200 if res["ok"] else 409)
 
+        if path == "/api/refresh-estimate":
+            try:
+                res = refresh_estimate_for_send(self.conn, data["version_id"], bool(data.get("force")))
+            except ValueError as exc:
+                return self.send_json({"ok": False, "error": str(exc), **deal_logic.refusal([str(exc)])}, 409)
+            return self.send_json(res, 200 if res["ok"] else 404)
+
         if path == "/api/reevaluate":
             try:
                 offer_id = core.reevaluate(self.conn, data["offer_id"])
@@ -1365,7 +1372,10 @@ def refresh_stale_estimates(conn):
         " WHERE v.status IN ('draft','checked','blocked','evaluated')"
         " AND d.status NOT IN ('closed','rejected','confirmed')"
         " AND e.capacity_revision IS NOT NULL AND e.capacity_revision != ?"
-        " AND v.offer_id=(SELECT id FROM offers WHERE deal_id=d.id ORDER BY round DESC LIMIT 1)",
+        # a newer client change still waiting to be priced is handled by its own flow
+        " AND NOT EXISTS (SELECT 1 FROM offers o2 WHERE o2.deal_id=d.id AND o2.round>"
+        "  (SELECT round FROM offers WHERE id=v.offer_id)"
+        "  AND NOT EXISTS (SELECT 1 FROM evaluations e2 WHERE e2.offer_id=o2.id))",
         (rev,)).fetchall()
     done = 0
     for r in rows:
@@ -1379,6 +1389,27 @@ def refresh_stale_estimates(conn):
             conn.rollback()
             print(f"auto re-estimate skipped for {r['deal_id']}: {exc}", flush=True)
     return done
+
+
+def refresh_estimate_for_send(conn, version_id, force=False):
+    """Before a proposal goes out: make sure it rests on the current calendar.
+
+    If the version's estimate was made on an older calendar (or the caller saw
+    the send refused for capacity), re-run it now on the same terms and return
+    the fresh version for the founder to review. Nothing is sent here; the
+    approval gate and the outbound check still run on the fresh version.
+    """
+    v = conn.execute("SELECT * FROM proposal_versions WHERE id=?", (version_id,)).fetchone()
+    if v is None:
+        return {"ok": False, "error": "version_not_found"}
+    e = conn.execute("SELECT capacity_revision FROM evaluations WHERE offer_id=?", (v["offer_id"],)).fetchone()
+    stale = bool(e and e["capacity_revision"] is not None
+                 and e["capacity_revision"] != core.cap.ledger_revision(conn))
+    if not (stale or force) or v["status"] not in ("draft", "checked", "blocked", "evaluated"):
+        return {"ok": True, "rerun": False, "version_id": version_id}
+    offer_id = core.reevaluate(conn, v["offer_id"])
+    _eval_id, new_version = core.evaluate(conn, v["deal_id"], offer_id)
+    return {"ok": True, "rerun": True, "version_id": new_version}
 
 
 def capacity_panel(conn):

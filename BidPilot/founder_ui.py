@@ -727,8 +727,18 @@ window.addEventListener('hashchange',parse);
 function cur(){return DEALS[S.deal]}
 function rerunNote(r){var n=r&&r.rerun||0;return n?' '+n+' estimate'+(n===1?' was':'s were')+' re-run on your new calendar.':''}
 function liveDraft(d){var t=document.getElementById('draft');if(t)S.drafts[d.id]=t.value;return draftText(d)}
+/* The calendar may have moved since this estimate was shown. Re-run it first
+   and let the founder look at the fresh options; their draft text is kept. */
+async function freshen(d,force){
+ var f=await api('/api/refresh-estimate',{version_id:d.v.version_id,force:!!force});
+ if(!f.ok||!f.rerun)return false;
+ delete S.tick[d.id];delete S.check[d.id];S.confirm=null;
+ await refreshState(false);S.busy=false;render();topPane();
+ say('Your calendar changed, so I re-ran the estimate. Check the updated options, then press Approve and send again.');
+ return true}
 async function approveFlow(d){
  var text=liveDraft(d);S.busy=true;render();
+ if(await freshen(d))return;
  var vid=d.v.version_id;
  if(text!==d.v.draft){var r=await api('/api/draft',{version_id:vid,body:text});if(!r.ok){S.busy=false;say('Not sent. '+(r.message||'The draft could not be saved.'));return}vid=r.version_id}
  var ids=ticked(d).map(function(o){return o.id});
@@ -742,6 +752,7 @@ async function approveFlow(d){
 async function doApprove(d){
  var cf=S.confirm;S.busy=true;render();
  var r=await api('/api/approve',{version_id:cf.vid,option_ids:cf.ids.length===d.opts.length?undefined:cf.ids});
+ if(!r.ok&&(r.reasons||[]).indexOf('capacity_changed')>-1){S.confirm=null;d.v.version_id=cf.vid;if(await freshen(d,true))return}
  S.busy=false;S.confirm=null;delete S.check[d.id];
  await refreshState(false);topPane();
  say(r.ok?'Proposal page created.':'Not sent. '+(r.message||'Approve was refused.'))}
