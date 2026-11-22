@@ -104,7 +104,7 @@ def add_message(c, inquiry, data):
     except Exception: c.rollback(); raise
 
 # Required brief fields, in the order the brief card shows them. Keep the
-# patterns in step with FIELDS in _UI_COMMON_JS. Budget is optional by design.
+# patterns in step with FIELDS in _UI_COMMON_JS. All 11 are required.
 BRIEF_FIELDS=[('Format',r'format|video_type|project_type|style|platform|channels'),
               ('Production',r'shoot_or|on_location|client_supplied_footage|production_type|production\.mode|asset_supply'),
               ('Shoot days',r'shoot_?days|days_on_set'),('Locations',r'location'),
@@ -116,8 +116,8 @@ BRIEF_SUBJECTS={'Format':'production.video_format','Production':'production.asse
                 'Locations':'production.location_requirements','Videos':'production.original_edits',
                 'Captioned versions':'production.caption_requirement','Scripting':'production.script_supply',
                 'Revision rounds':'production.revision_rounds','Deadline':'production.final_delivery_date',
-                'Editing':'production.edit_level'}
-OPTIONAL_FIELDS={'Your budget'}
+                'Editing':'production.edit_level','Your budget':'budget_sgd'}
+OPTIONAL_FIELDS=set()   # every item is needed, as on the Hashmeta form
 
 def brief_missing(facts):
     """Required fields still empty, or only proposed ('to confirm'), as card labels."""
@@ -661,7 +661,7 @@ def _ui_chat(heading, quick, placeholder='Type a message or drop a reference cli
             '<label class="sr" for="text">Your message</label><textarea id="text" rows="1" placeholder="' + placeholder + '"></textarea>'
             '<button class="btn p" id="send">Send</button></form></section>')
 
-_UI_BRIEF = ('<aside class="side"><section class="card" aria-labelledby="briefh"><div class="card-top"><h2 id="briefh">Your brief so far</h2><span class="small muted" id="count">0 of 10 required</span></div>'
+_UI_BRIEF = ('<aside class="side"><section class="card" aria-labelledby="briefh"><div class="card-top"><h2 id="briefh">Your brief so far</h2><span class="small muted" id="count">0 of 11 required</span></div>'
              '<div class="fill" aria-hidden="true"><i id="fillbar"></i></div><dl class="brief" id="facts"></dl>'
              '<div class="todo" id="todo" hidden></div><p class="ready" id="ready" hidden>Your brief is complete.</p>'
              '<button class="btn p" type="button" id="sendbrief" disabled aria-describedby="why">Send my brief</button>'
@@ -674,7 +674,7 @@ const FIELDS=__BRIEF_FIELDS__.map(([n,p])=>[n,new RegExp(p)]);
 function label(s){s=String(s).split('.').pop().replace(/[_-]+/g,' ');return s.charAt(0).toUpperCase()+s.slice(1)}
 function show(v){if(v===null||v===undefined)return '';if(typeof v==='boolean')return v?'Yes':'No';if(Array.isArray(v))return v.map(show).join(', ');if(typeof v==='object')return Object.entries(v).map(([k,x])=>label(k)+': '+show(x)).join(', ');return String(v)}
 function renderBrief(facts){let gone=new Set(facts.map(f=>f.supersedes).filter(Boolean)),latest=new Map();for(let f of facts)if(!gone.has(f.id))latest.set(f.subject,f);let rows=FIELDS.map(([name])=>({name,fact:null})),extra=[];for(let f of latest.values()){let i=FIELDS.findIndex(([,re])=>re.test(f.subject));if(i>=0&&!rows[i].fact)rows[i].fact=f;else extra.push({name:label(f.subject),fact:f})}let dl=document.querySelector('#facts');dl.replaceChildren();let missing=[],req=FIELDS.filter(([n])=>!OPTIONAL.has(n)).length;for(let r of rows.concat(extra)){let dt=document.createElement('dt'),dd=document.createElement('dd'),must=rows.includes(r)&&!OPTIONAL.has(r.name);dt.textContent=r.name;if(!r.fact){if(must){dd.className='miss';dd.textContent='Missing';missing.push(r.name)}else{dd.className='muted';dd.textContent=r.name==='Your budget'?'Optional':'Ask in chat'}}else{dd.textContent=r.fact.status==='excluded'?'Not needed':show(r.fact.value);if(r.fact.status==='proposed'){let e=document.createElement('em');e.textContent='to confirm';dd.append(e);if(must)missing.push('Confirm '+r.name.toLowerCase())}}dl.append(dt,dd)}document.querySelector('#count').textContent=(req-missing.length)+' of '+req+' required';document.querySelector('#fillbar').style.width=Math.round((req-missing.length)/req*100)+'%';return missing}
-const OPTIONAL=new Set(['Your budget']);
+const OPTIONAL=new Set();
 function briefUI(missing,o){o=o||{};let btn=document.querySelector('#sendbrief'),todo=document.querySelector('#todo'),why=document.querySelector('#why'),ready=document.querySelector('#ready'),done=document.querySelector('#done'),card=document.querySelector('#briefh');
 let submitted=!!o.submitted;card.textContent=submitted?'Your submitted brief':'Your brief so far';document.querySelector('.fill').hidden=submitted;document.querySelector('#count').hidden=submitted;
 btn.classList.toggle('sub',submitted);btn.classList.toggle('p',!submitted);
