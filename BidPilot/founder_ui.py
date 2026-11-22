@@ -16,7 +16,7 @@ button{cursor:pointer}
 h1,h2,h3,h4,p{margin:0}
 .top{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
-.logo i{width:20px;height:20px;border-radius:6px;background:var(--teal);display:block}
+.logo i{width:22px;height:22px;background:url(data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27%231e9e5a%27%20d=%27M22%202%202%209.5l8.2%203.3L13.5%2021z%27/%3E%3Cpath%20fill=%27none%27%20stroke=%27%23fff%27%20stroke-width=%271.4%27%20stroke-linecap=%27round%27%20d=%27M22%202%2010.2%2012.8%27/%3E%3C/svg%3E) center/contain no-repeat;display:block}
 .tabs{display:flex;gap:4px}
 .tab{border:0;background:transparent;padding:7px 12px;border-radius:6px;color:var(--mute);font-weight:500}
 .tab[aria-current="page"]{background:var(--teal-soft);color:var(--teal);font-weight:600}
