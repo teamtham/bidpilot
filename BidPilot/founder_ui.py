@@ -7,9 +7,7 @@ owner routes, so the outbound check and the approval gate are unchanged.
 import json
 
 CSS = r"""
-:root{--bg:#f2f4f3;--card:#ffffff;--ink:#17201d;--mute:#5d6a65;--line:#dde2df;--soft:#eef1ef;--teal:#0e6b5b;--teal-ink:#ffffff;--teal-soft:#dff0eb;--red:#b3261e;--red-soft:#fce9e7;--amber:#7a4e00;--amber-soft:#fff2cf;--green:#1b6b3d;--green-soft:#e0f3e7;--blue:#1f5a99;--blue-soft:#e1edf9;--j1:#7a97c4;--j2:#c9a45c;--j3:#be7f95;--shadow:0 1px 2px rgba(20,30,26,.06);--font:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101513;--card:#171e1b;--ink:#e6ece9;--mute:#9aa7a1;--line:#27312d;--soft:#1e2723;--teal:#3dae96;--teal-ink:#07201a;--teal-soft:#16332d;--red:#ff9d93;--red-soft:#3b1d1a;--amber:#f0c36a;--amber-soft:#3a2d10;--green:#7ad79f;--green-soft:#173424;--blue:#8dbcf0;--blue-soft:#162a40;--j1:#5f7fb0;--j2:#a8854a;--j3:#a56379;--shadow:none;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#101513;--card:#171e1b;--ink:#e6ece9;--mute:#9aa7a1;--line:#27312d;--soft:#1e2723;--teal:#3dae96;--teal-ink:#07201a;--teal-soft:#16332d;--red:#ff9d93;--red-soft:#3b1d1a;--amber:#f0c36a;--amber-soft:#3a2d10;--green:#7ad79f;--green-soft:#173424;--blue:#8dbcf0;--blue-soft:#162a40;--j1:#5f7fb0;--j2:#a8854a;--j3:#a56379;--shadow:none;color-scheme:dark}
+:root{--bg:#f2f4f3;--card:#ffffff;--ink:#17201d;--mute:#5d6a65;--line:#dde2df;--soft:#eef1ef;--teal:#0e6b5b;--teal-ink:#ffffff;--teal-soft:#dff0eb;--red:#b3261e;--red-soft:#fce9e7;--amber:#7a4e00;--amber-soft:#fff2cf;--green:#1b6b3d;--green-soft:#e0f3e7;--blue:#1f5a99;--blue-soft:#e1edf9;--j1:#7a97c4;--j2:#c9a45c;--j3:#be7f95;--shadow:0 1px 2px rgba(20,30,26,.06);--font:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;color-scheme:light}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--font);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -695,8 +693,8 @@ schedulePolling();
 
 def page(badge, fixtures):
     fixtures_json = json.dumps(fixtures).replace("</", "<\\/")
-    return ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    return ('<!doctype html><html lang="en" data-theme="light" style="color-scheme:light"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light">'
             '<title>BidPilot founder dashboard</title>'
             '<link rel="preconnect" href="https://fonts.googleapis.com">'
             '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap">'
