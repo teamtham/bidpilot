@@ -51,6 +51,11 @@ else
 fi
 
 # 3. Server: launchd keeps it alive; restart it when the chat address changed.
+APP_DIR="$( { tr -d '\n' < "$STATE/app_dir"; } 2>/dev/null || true)"
+if [[ -n "$APP_DIR" && "$APP_DIR" != "$HERE/BidPilot" && "$APP_DIR" != "$HERE" ]]; then
+  echo "Note: the live server runs $APP_DIR (set in ~/.bidpilot/app_dir), not this folder."
+  echo "      To run this folder instead: $HERE/deploy/install_launchd.sh"
+fi
 if launchctl print "gui/$(id -u)/$AGENT" >/dev/null 2>&1; then
   if [[ $changed == 1 || "$(alive http://127.0.0.1:8765/inquire)" != "200" ]]; then
     launchctl kickstart -k "gui/$(id -u)/$AGENT"; echo "Server: restarted by launchd"
