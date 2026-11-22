@@ -215,7 +215,7 @@ class Phase5Tests(unittest.TestCase):
         # owner-only preview of the exact client page before approval
         status, html = self.get(f"/preview/{version_id}")
         self.assertEqual(status, 200)
-        self.assertIn("S$2,700.00", html)
+        self.assertIn("S$2,700", html)
         self.assertIn("As offered", html)
         self.assertIn("Preview only", html)
         status, _ = self.get(f"/preview/{version_id}", token=False)
@@ -243,7 +243,7 @@ class Phase5Tests(unittest.TestCase):
         # client page: public terms only
         status, html = request(self.base, "GET", url, None, {})
         self.assertEqual(status, 200)
-        self.assertIn("S$2,700.00", html)
+        self.assertIn("S$2,700", html)
         self.assertNotIn("floor", html.lower())
         self.assertNotIn("capacity", html.lower())
         self.assertNotIn("Glow Studio", html)

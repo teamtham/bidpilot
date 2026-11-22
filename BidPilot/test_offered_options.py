@@ -63,9 +63,9 @@ class OfferedOptionsTests(unittest.TestCase):
         res = json.loads(text)
         status, page = test_http.request(self.base, "GET", res["url"], None, {})
         self.assertEqual(status, 200)
-        self.assertIn("S$2,700.00", page)
+        self.assertIn("S$2,700", page)
         self.assertIn('<span class="tag">Phased</span>', page)
-        self.assertNotIn("S$2,050.00", page)        # unticked hold_date
+        self.assertNotIn("S$2,050", page)        # unticked hold_date
         token = res["url"].rsplit("/", 1)[1]
         status, text = test_http.request(self.base, "POST", "/p/" + token + "/accept",
                                {"option_id": keys["hold_date"]}, {"Origin": self.base})

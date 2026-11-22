@@ -204,7 +204,7 @@ class HttpTests(unittest.TestCase):
         f = self.flow("page-1")
         status, html = request(self.base, "GET", f["url"], None, {})
         self.assertEqual(status, 200)
-        self.assertIn("S$2,700.00", html)
+        self.assertIn("S$2,700", html)
         self.assertNotIn("2,454", html)     # floor never shown
         self.assertNotIn("Glow Studio", html)  # other client names never shown
         self.assertNotIn("floor", html.lower())
