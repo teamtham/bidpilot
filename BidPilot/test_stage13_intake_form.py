@@ -55,7 +55,7 @@ class IntakeFormTests(unittest.TestCase):
     def test_form_auth_and_invalid(self):
         status, page = self.request('GET', '/quote')
         self.assertEqual(status, 200)
-        self.assertIn(server.SAMPLE_BADGE, page)
+        self.assertNotIn(server.SAMPLE_BADGE, page)
         for key in FIELDS:
             self.assertIn(f'name="{key}"', page)
         self.assertIn('Caption every deliverable', page)

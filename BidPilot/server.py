@@ -646,7 +646,7 @@ def quote_page():
     page = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Request a quote</title>
 <style>__QUOTE_STYLE__</style></head>
-<body><header><span class="badge">__SAMPLE_BADGE__</span></header>
+<body>
 <main><h1>Request a quote</h1>
 <p><a href="/inquire">Discuss your brief and upload a reference</a></p>
 <p class="lede">Tell us about your video project. We reply with a clear, fixed-price proposal.</p>
@@ -1041,7 +1041,7 @@ def render_client_html(conn, version, preview=False, preview_ids=None):
     if version['status'] == 'confirmed':
         body_html += '<p class="small muted">Booking confirmed</p>'
     client = conn.execute('SELECT client,sample_data FROM deals WHERE id=?', (version['deal_id'],)).fetchone()
-    badge = '<span class="small muted">' + SAMPLE_BADGE + '</span>' if client['sample_data'] else ''
+    badge = ''  # the sample-data banner is no longer shown to buyers
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>{_esc(title)}</title>
