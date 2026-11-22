@@ -667,10 +667,9 @@ def quote_page():
 <label>Delivery deadline<input type="date" name="deadline" required></label>
 <label>SGD budget<input type="number" name="budget_sgd" min="0" step="0.01" required></label>
 <label>Travel, kit or talent needs<textarea name="travel_kit_talent"></textarea></label>
-<div class="actions"><button type="button" class="ghost" id="preset">Use demo preset</button><button type="submit">Submit request</button></div></form>
+<div class="actions"><button type="submit">Submit request</button></div></form>
 </main>
-<script>document.getElementById('preset').onclick = () => {const f=document.querySelector('form');
-for (const [k,v] of Object.entries({editing_level:'standard',graphics:'basic_titles',scripting:'light',revision_rounds:2,interviewees:0,shoot_days:1,locations:1,production_mode:'on_location'})) f.elements[k].value=v;};</script></body></html>"""
+</body></html>"""
     return (page.replace("QUOTE_REQUEST_ID", secrets.token_urlsafe(18))
                 .replace("QUOTE_RESUME_PROOF", secrets.token_urlsafe(32))
                 .replace("__SAMPLE_BADGE__", SAMPLE_BADGE)
