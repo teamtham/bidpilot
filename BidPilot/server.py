@@ -1338,6 +1338,9 @@ def state(conn):
                 "comparison": _offer_comparison(offer_map, version_offer, v),
                 "client_url": (v["client_url_private"] if "client_url_private" in v.keys()
                                and v["status"] in ("published", "confirmed") else None),
+                "unpriced": ({"missing": (result or {}).get("missing_fields") or [],
+                              "clarifications": (result or {}).get("clarifications") or []}
+                             if eval_row and eval_row["verdict"] == "clarify" else None),
                 "check_violations": [
                     {**item, "message": deal_logic.explain_violation(item)}
                     for item in (db.uj(v["check_violations_json"])
