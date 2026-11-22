@@ -2480,8 +2480,8 @@ def founder_page(conn):
     import founder_ui
     fixtures = [{"source_id": sid, "label": label, "raw": raw, "offer_request": offer}
                 for sid, label, offer, raw in FIXTURES]
-    return founder_ui.page(SAMPLE_BADGE, fixtures).replace(
-        '<body>', '<body><nav aria-label="Submitted briefs" style="padding:8px 24px;background:var(--surface);border-bottom:1px solid var(--border)"><a href="/submitted-briefs">Review submitted briefs, buyer video moments and corrections</a></nav>', 1)
+    # The /submitted-briefs page still exists; it is just not linked from the dashboard.
+    return founder_ui.page(SAMPLE_BADGE, fixtures)
 
 
 class StudioServer(ThreadingHTTPServer):

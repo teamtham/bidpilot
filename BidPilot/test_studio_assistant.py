@@ -589,7 +589,7 @@ class StudioAssistantTests(unittest.TestCase):
             page.set_viewport_size({'width':390,'height':844})
             self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'))
             browser.close()
-        self.assertIn('/submitted-briefs', request(self.base, 'GET', '/dashboard', headers=headers)[1])
+        self.assertNotIn('Review submitted briefs', request(self.base, 'GET', '/dashboard', headers=headers)[1])
         with patch.object(assistant, 'generate', return_value=self.answer()):
             self.post(self.url+'/messages', {'text':'Unsubmitted new preference', 'request_id':'late'})
         with self.c:
