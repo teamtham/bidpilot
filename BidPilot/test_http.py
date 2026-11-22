@@ -284,6 +284,26 @@ class HttpTests(unittest.TestCase):
             block = conn.execute("SELECT id FROM calendar_blocks ORDER BY rowid DESC LIMIT 1").fetchone()[0]
         self.assertTrue(json.loads(self.post("/api/calendar/remove", {"id": block})[1])["ok"])
 
+    def test_send_reruns_an_estimate_made_on_an_older_calendar(self):
+        """Approve and send never stops on 'calendar changed': it re-runs first."""
+        imp = self.import_inquiry("auto-rerun-2")
+        _, text = self.post("/api/evaluate", {"deal_id": imp["deal_id"], "offer_id": imp["offer_id"]})
+        old = json.loads(text)["version_id"]
+        _, text = self.post("/api/refresh-estimate", {"version_id": old})
+        self.assertEqual(json.loads(text), {"ok": True, "rerun": False, "version_id": old})
+        with self.db() as conn:            # the calendar moves without the dashboard seeing it
+            import capacity
+            week = next(iter(capacity.ledger(conn)))
+            capacity.change_calendar(conn, "block", {"week": week, "hours": 1, "reason": "Admin"})
+            block = conn.execute("SELECT id FROM calendar_blocks ORDER BY rowid DESC LIMIT 1").fetchone()[0]
+        _, text = self.post("/api/refresh-estimate", {"version_id": old})
+        res = json.loads(text)
+        self.assertTrue(res["ok"] and res["rerun"])
+        self.assertNotEqual(res["version_id"], old)
+        _, text = self.post("/api/refresh-estimate", {"version_id": res["version_id"]})
+        self.assertFalse(json.loads(text)["rerun"])
+        self.assertTrue(json.loads(self.post("/api/calendar/remove", {"id": block})[1])["ok"])
+
     # -- unsafe draft ----------------------------------------------------------
     def test_unsafe_draft_blocked(self):
         imp = self.import_inquiry("unsafe-1")
