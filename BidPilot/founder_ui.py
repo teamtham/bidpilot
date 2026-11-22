@@ -191,6 +191,14 @@ td.hi{background:var(--amber-soft);color:var(--amber);font-weight:600}
  .chart{gap:4px}
  .tl li{grid-template-columns:1fr}
 }
+@media (min-width:901px){
+ body.split{height:100vh;overflow:hidden;display:flex;flex-direction:column;margin-block:0}
+ body.split>*{flex:none}
+ body.split #app{flex:1;min-height:0;display:flex;flex-direction:column}
+ .shell.split{flex:1;min-height:0;padding-block:16px 0;align-items:stretch}
+ .shell.split .rail{position:static;max-height:none;height:100%;align-self:stretch;padding-bottom:24px;scrollbar-gutter:stable}
+ .shell.split>.main{height:100%;overflow:auto;padding:0 8px 40px 0;scrollbar-gutter:stable}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* live-page additions */
@@ -313,7 +321,7 @@ function stat(d){switch(d.phase){
 function headChip(d){
  if(d.phase==='counter'||d.phase==='review'){if(d.stale)return ['Needs a fresh estimate','warn'];return d.est&&d.est.fit?['Fits as asked','ok']:['Doesn’t fit as asked','bad']}
  return stat(d)}
-function railCard(d){var t=stat(d);return '<button class="card-deal'+(d.phase==='test'?' test':'')+'" data-act="open" data-id="'+d.id+'"'+(S.deal===d.id?' aria-current="true"':'')+'><b>'+esc(d.client)+(d.raw.is_sample?' <span class="chip info">Sample</span>':'')+'</b><span class="sub">'+esc(d.rcv)+' · '+esc(d.src)+'</span><span class="chip '+t[1]+'">'+t[0]+'</span></button>'}
+function railCard(d){var t=stat(d);return '<button class="card-deal'+(d.phase==='test'?' test':'')+'" data-act="open" data-id="'+d.id+'"'+(S.deal===d.id?' aria-current="true"':'')+'><b>'+esc(d.client)+'</b><span class="sub">'+esc(d.rcv)+' · '+esc(d.src)+'</span><span class="chip '+t[1]+'">'+t[0]+'</span></button>'}
 function rail(){
  var all=ORDER.map(function(k){return DEALS[k]});
  var real=all.filter(function(d){return d.phase!=='test'}),tests=all.filter(function(d){return d.phase==='test'});
@@ -450,7 +458,7 @@ function histHtml(d){
  var total=d.raw.steps_total||steps.length;
  var more=total>show.length?'<p class="note">Showing the latest '+show.length+' of '+total+' steps. Repeated checks that found nothing new are no longer logged. <button class="link" data-act="more">Show earlier</button></p>':'';
  return '<ul class="tl">'+rows+'</ul>'+more}
-function head(d){var c=headChip(d);return '<div class="head"><div><h1>'+esc(d.title)+(d.raw.is_sample?' <span class="chip info" style="vertical-align:middle">Sample</span>':'')+'</h1><p class="meta">'+esc(d.src)+' · received '+esc(d.rcv)+'</p></div><span class="chip '+c[1]+'">'+c[0]+'</span></div>'}
+function head(d){var c=headChip(d);return '<div class="head"><div><h1>'+esc(d.title)+'</h1><p class="meta">'+esc(d.src)+' · received '+esc(d.rcv)+'</p></div><span class="chip '+c[1]+'">'+c[0]+'</span></div>'}
 function approvalAt(d,action){var a=(d.raw.approvals||[]).filter(function(x){return x.action===action});return a.length?when(a[a.length-1].decided_at):''}
 function sentCard(d){
  var v=d.v,url=v&&v.client_url?location.origin+v.client_url:'';
@@ -571,7 +579,7 @@ function toolsView(){
  if(S.sub==='log')return logView();
  var G=[['Your work',[['portfolio','grid','Portfolio library','The work you show clients. Filter by format, see what buyers can view.','Restyled'],['rates','tag','Production estimates','Your price list: hours and price for each kind of work. Custom jobs are built from it.','Restyled']]],
   ['Clients',[['proposals','doc','Proposals and amendments','Every proposal sent, what the client picked, and change requests.','Unchanged'],['inquiry','chat','Buyer inquiry','The client chat and brief card, as clients see it.','Unchanged']]],
-  ['System',[['demo','tool','Demo tools','Reset sample data, inbox and capacity tables. Moved off every deal view.','Moved here'],['log','list','Run log','Every agent step with the latest first, for when you need the detail.','New']]]];
+  ['System',[['log','list','Run log','Every agent step with the latest first, for when you need the detail.','New']]]];
  return '<div class="main"><div class="head"><div><h1>Studio tools</h1><p class="meta">Everything that is not a deal or the calendar.</p></div></div>'+G.map(function(g){return '<section class="tgroup"><h2>'+g[0]+'</h2><div class="tgrid">'+g[1].map(function(t){return '<button class="tool" data-act="tool" data-tool="'+t[0]+'"><span class="ico">'+IC[t[1]]+'</span><b>'+t[2]+'</b><span class="ds">'+t[3]+'</span><span class="ft"><span class="chip'+(t[4]==='Unchanged'?'':' info')+'">'+t[4]+'</span><span class="go">Open ›</span></span></button>'}).join('')+'</div></section>'}).join('')+'</div>'}
 function crumb(t){return '<div class="crumb"><button class="link" data-act="tab" data-tab="tools">Studio tools</button> › '+t+'</div>'}
 function ratesView(){
@@ -598,20 +606,25 @@ function logView(){
  var all=[];ORDER.forEach(function(k){var d=DEALS[k];d.raw.steps.forEach(function(s){all.push({d:d,s:s})})});
  all.sort(function(a,b){return (b.s.finished_at||b.s.started_at||0)-(a.s.finished_at||a.s.started_at||0)});
  return '<div class="main">'+crumb('Run log')+'<div class="head"><div><h1>Run log</h1><p class="meta">Every agent step, latest first.</p></div></div><section class="panel"><ul class="tl">'+all.slice(0,200).map(function(x){var l=stepLine(x.s);return '<li><time>'+esc(l[0])+'</time><span><b>'+esc(x.d.client)+': '+esc(l[1])+'</b>'+(l[2]?'<br><span class="note">'+esc(l[2])+'</span>':'')+'</span></li>'}).join('')+'</ul></section></div>'}
-function notesPanel(){
- return '<aside class="sheet notes" role="dialog" aria-label="What is new in this design"><div class="head"><h2 style="font-size:18px;font-weight:600">What’s new in this design</h2><button class="btn sm" data-act="notes">Close</button></div>'
- +'<h3>Fixes from the audit</h3><ul><li><b>Stale estimate.</b> A deal whose calendar changed shows what changed, which proposal it affects and whether the date still works. Re-run the estimate, and Approve stays locked until you do.</li><li><b>No edit or check buttons.</b> The draft is always editable. The checks run when you press Approve and send, and tell you exactly what to take out.</li><li><b>Go to page and Copy link</b> appear as soon as the proposal page is ready.</li><li><b>Plain refusals.</b> Locked buttons say why in a sentence, never a code.</li><li><b>Honest status.</b> Booked and rejected deals no longer show warnings.</li><li><b>Needs-info deals</b> list exactly what is missing.</li><li><b>Custom jobs</b> are built from your price list in Studio tools, Production estimates.</li><li><b>Similar work</b> appears on every proposal before it goes out. Questions to the client and unpriced jobs say why it is not there yet.</li><li><b>One set of option names</b> everywhere. Duplicates are merged.</li><li><b>Queue.</b> Test data is tucked away, and every card has a date.</li><li><b>History</b> is capped, with no field names or skill names. Demo tools moved to Studio tools.</li><li><b>Studio tools</b> is a proper hub: grouped cards with icons, Portfolio library and Production estimates.</li><li><b>Phone.</b> The deals list becomes a menu.</li><li><b>Accessibility.</b> A real page heading, current-deal marking, and nothing under 12px.</li></ul><h3>New: the studio calendar</h3><ul><li>One bar per week, labelled with the week, the jobs and the hours free.</li><li><b>Preview on calendar</b> beside every option. It changes nothing.</li><li>Working hours, plus blocks for leave, admin or outside work.</li><li>Change anything and every affected proposal flags itself. Try blocking a week.</li></ul><h3>Not in this version</h3><ul><li>Google Calendar sync, and day-level time slots.</li></ul></aside>'}
 function proposalSheet(){return ''}
 
 /* ---------- render ---------- */
 function render(){
  if(!ST){document.getElementById('app').innerHTML='<p class="note" style="padding:20px 0">Loading deals…</p>';return}
- var y=window.scrollY,d=DEALS[S.deal];
+ var y=window.scrollY,d=DEALS[S.deal],rl=document.querySelector('.rail'),mn=document.querySelector('.shell.split>.main'),rs=rl?rl.scrollTop:0,ms=mn?mn.scrollTop:0;
+ if(S.resetMain){ms=0;S.resetMain=false}
+ var fa=document.activeElement,fid=fa&&fa.id&&fa.matches&&fa.matches('textarea,input,select')?fa.id:null,fs=null,fe=null;
+ try{if(fid){fs=fa.selectionStart;fe=fa.selectionEnd}}catch(x){}
+ document.body.classList.toggle('split',S.tab==='deals');
  var tab=function(id,t){return '<button class="tab" data-act="tab" data-tab="'+id+'"'+(S.tab===id?' aria-current="page"':'')+'>'+t+'</button>'};
- var h='<header class="top"><span class="logo"><i></i>BidPilot</span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button><span class="pill">'+esc(ST.badge||'')+'</span><button class="btn sm" data-act="notes">What’s new</button></header>';
+ var h='<header class="top"><span class="logo"><i></i>BidPilot</span><nav class="tabs" aria-label="Sections">'+tab('deals','Deals')+tab('calendar','Calendar')+tab('tools','Studio tools')+'</nav><span class="sp"></span><button class="btn sm railbtn" data-act="rail">Deals</button></header>';
  var main=S.tab==='deals'?dealView(d):S.tab==='calendar'?calView():toolsView();
- h+='<div class="shell'+(S.tab==='deals'?'':' wide')+'">'+(S.tab==='deals'?rail():'')+main+'</div>'+sheet()+(S.notes?notesPanel():'')+(S.toast?'<div class="toast" role="status">'+esc(S.toast)+'</div>':'');
- document.getElementById('app').innerHTML=h;window.scrollTo(0,y)}
+ h+='<div class="shell'+(S.tab==='deals'?' split':' wide')+'">'+(S.tab==='deals'?rail():'')+main+'</div>'+sheet()+(S.toast?'<div class="toast" role="status">'+esc(S.toast)+'</div>':'');
+ document.getElementById('app').innerHTML=h;window.scrollTo(0,y);
+ rl=document.querySelector('.rail');mn=document.querySelector('.shell.split>.main');if(rl)rl.scrollTop=rs;if(mn)mn.scrollTop=ms;
+ if(fid){var nf=document.getElementById(fid);if(nf){try{nf.focus({preventScroll:true});if(fs!=null)nf.setSelectionRange(fs,fe)}catch(x){}}}
+ var cd=rl&&rl.querySelector('.card-deal[aria-current]');if(cd&&S.revealRail){cd.scrollIntoView({block:'nearest'});S.revealRail=false}}
+function topPane(){var m=document.querySelector('.shell.split>.main');if(m)m.scrollTop=0;else window.scrollTo(0,0)}
 function say(t){S.toast=t;render();clearTimeout(say.t);say.t=setTimeout(function(){S.toast='';render()},3600)}
 function go(h){if(location.hash==='#'+h)parse();else location.hash=h}
 function parse(){var h=location.hash.slice(1);
@@ -621,7 +634,7 @@ function parse(){var h=location.hash.slice(1);
  else if(h==='run-log'){S.tab='tools';S.sub='log'}
  else if(h==='calendar'||h==='tools'){S.tab=h;S.sub=null}
  else{S.tab='deals';if(h.indexOf('deal-')===0)S.deal=h.slice(5)}
- S.rail=false;S.prev=null;S.confirm=null;S.notes=false;render();if(S.tab==='deals')window.scrollTo(0,0)}
+ S.rail=false;S.prev=null;S.confirm=null;S.notes=false;S.resetMain=true;S.revealRail=true;render();if(S.tab!=='deals'||window.matchMedia('(max-width:900px)').matches)window.scrollTo(0,0)}
 window.addEventListener('hashchange',parse);
 
 /* ---------- actions ---------- */
@@ -643,7 +656,7 @@ async function doApprove(d){
  var cf=S.confirm;S.busy=true;render();
  var r=await api('/api/approve',{version_id:cf.vid,option_ids:cf.ids.length===d.opts.length?undefined:cf.ids});
  S.busy=false;S.confirm=null;delete S.check[d.id];
- await refreshState(false);window.scrollTo(0,0);
+ await refreshState(false);topPane();
  say(r.ok?'Proposal page created.':'Not sent. '+(r.message||'Approve was refused.'))}
 document.addEventListener('click',async function(e){
  var b=e.target.closest('[data-act]');if(!b)return;var a=b.dataset.act,d=cur(),v,r;
@@ -651,7 +664,6 @@ document.addEventListener('click',async function(e){
   case 'tab':S.sub=null;if(b.dataset.tab!=='calendar')S.hi=null;go(b.dataset.tab==='deals'?'deal-'+S.deal:b.dataset.tab);break;
   case 'open':S.hi=null;go('deal-'+b.dataset.id);break;
   case 'rail':S.rail=!S.rail;render();break;
-  case 'notes':S.notes=!S.notes;render();break;
   case 'showTest':S.showTest=!S.showTest;render();break;
   case 'toggle':S.open[b.dataset.key]=!S.open[b.dataset.key];render();break;
   case 'more':S.more[d.id]=true;render();break;
@@ -671,7 +683,7 @@ document.addEventListener('click',async function(e){
   case 'doApprove':
    if(d.phase==='info'){S.busy=true;r=await api('/api/send-question',{deal_id:d.id,question:draftText(d)});S.busy=false;S.confirm=null;delete S.drafts[d.id];await refreshState(false);say(r.ok?'Question sent to '+d.client+'. It will return to your queue when they reply.':(r.message||'The question was not sent.'));break}
    doApprove(d);break;
-  case 'doReject':S.busy=true;r=await api('/api/reject',{version_id:d.v.version_id});S.busy=false;S.confirm=null;await refreshState(false);window.scrollTo(0,0);say(r.ok?'Rejected. Nothing was sent to the client.':(r.message||'Reject was refused.'));break;
+  case 'doReject':S.busy=true;r=await api('/api/reject',{version_id:d.v.version_id});S.busy=false;S.confirm=null;await refreshState(false);topPane();say(r.ok?'Rejected. Nothing was sent to the client.':(r.message||'Reject was refused.'));break;
   case 'copy':v=location.origin+d.v.client_url;try{navigator.clipboard.writeText(v).then(function(){say('Link copied.')},function(){say('Copy blocked here. Select the link above.')})}catch(x){say('Copy blocked here. Select the link above.')}break;
   case 'page':window.open(d.v.client_url,'_blank','noopener');break;
   case 'confirmBooking':S.busy=true;r=await api('/api/confirm-booking',{version_id:d.v.version_id});S.busy=false;await refreshState(false);say(r.ok?'Booking confirmed. The hours are set aside on your calendar.':(r.message||'Confirm was refused.'));break;
@@ -687,7 +699,7 @@ document.addEventListener('click',async function(e){
   case 'runEst':
    var t=readTotals(d);if(!(t.h>0)||!(t.p>0)){say('Add at least one item from your price list.');break}
    v=(ST.price_list||[]).map(function(x){var el=document.getElementById('q-'+x.id);return {id:x.id,qty:el?(parseFloat(el.value)||0):0}}).filter(function(x){return x.qty>0});
-   S.busy=true;render();r=await api('/api/price-list-estimate',{deal_id:d.id,items:v});S.busy=false;await refreshState(false);window.scrollTo(0,0);
+   S.busy=true;render();r=await api('/api/price-list-estimate',{deal_id:d.id,items:v});S.busy=false;await refreshState(false);topPane();
    say(r.ok?'Estimate done from your price list. A draft is ready.':(r.message||'The estimate could not be made.'));break;
   case 'win':v=parseInt(b.dataset.d,10);S.win=v===0?0:S.win+v;render();break;
   case 'saveHrs':v=parseFloat(document.getElementById('hrs').value);if(!(v>0)||v>80){say('Enter hours between 1 and 80.');break}
@@ -726,6 +738,6 @@ def page(badge, fixtures):
             '<style>' + CSS + '</style></head><body>'
             '<h1 style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">BidPilot founder dashboard</h1>'
             '<div id="app"><p>Loading deals…</p></div>'
-            '<noscript>' + badge + '</noscript>'
+            '<noscript>BidPilot needs JavaScript.</noscript>'
             '<script>const FIXTURES = ' + fixtures_json + ';\n</script>'
             '<script>' + JS + '</script></body></html>')

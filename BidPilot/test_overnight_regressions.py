@@ -462,7 +462,10 @@ class OvernightRegressions(unittest.TestCase):
             self.assertEqual(status, 200, path)
             self.assertEqual(headers.get("Cache-Control"), "no-store", path)
             self.assertIn("noindex", headers.get("X-Robots-Tag", ""), path)
-            self.assertIn("Sample data · 23 Nov 2026 · Asia/Singapore", text, path)
+            if owner:   # the founder dashboard no longer shows the sample-data pill
+                self.assertNotIn("Sample data · 23 Nov 2026 · Asia/Singapore", text, path)
+            else:
+                self.assertIn("Sample data · 23 Nov 2026 · Asia/Singapore", text, path)
 
     # -- 11: seed tamper invalidates the client page ---------------------------
     def test_seed_tamper_invalidates_client_page(self):
