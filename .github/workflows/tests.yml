@@ -14,6 +14,25 @@ jobs:
         run: |
           python -m pip install playwright -r BidPilot/requirements-media.txt
           python -m playwright install --with-deps chromium
+      - name: Cache whisper.cpp and its model
+        id: whisper-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/whisper
+          key: whisper-cpp-v1.9.5-tiny.en
+      - name: Build whisper.cpp and download the tiny English model
+        if: steps.whisper-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch v1.9.5 https://github.com/ggml-org/whisper.cpp /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF
+          cmake --build /tmp/whisper.cpp/build -j4 --target whisper-cli
+          mkdir -p ~/whisper
+          cp /tmp/whisper.cpp/build/bin/whisper-cli ~/whisper/
+          curl -fsSL -o ~/whisper/ggml-tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+      - name: Point the app at whisper.cpp
+        run: |
+          echo "BIDPILOT_WHISPER_CLI=$HOME/whisper/whisper-cli" >> "$GITHUB_ENV"
+          echo "BIDPILOT_WHISPER_MODEL=$HOME/whisper/ggml-tiny.en.bin" >> "$GITHUB_ENV"
       - name: Run engine tests
         working-directory: BidPilot/bidpilot-engine
         run: python3 -B -m unittest -v test_engine.py
