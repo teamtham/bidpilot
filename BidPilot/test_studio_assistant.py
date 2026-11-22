@@ -528,6 +528,23 @@ class StudioAssistantTests(unittest.TestCase):
                 assistant.generate([{'text': 'Synthetic input'}])
         self.assertEqual(transport.call_count, 1)
 
+    def test_billing_or_quota_refusal_shows_friendly_unavailable_message(self):
+        from io import BytesIO
+        from urllib.error import HTTPError
+        billing = HTTPError('https://synthetic.invalid', 403, 'Forbidden', {},
+                            BytesIO(b'{"error":{"message":"Your prepayment credits are depleted. Check billing."}}'))
+        with patch.dict(os.environ, {'GEMINI_API_KEY': 'synthetic-test-key'}), \
+                patch.object(assistant.time, 'sleep'), \
+                patch.object(assistant, 'urlopen', side_effect=billing):
+            with self.assertRaisesRegex(ValueError, 'model_unavailable'):
+                assistant.generate([{'text': 'Synthetic input'}])
+        self.start('Two reels')
+        with patch.object(assistant, 'generate', side_effect=ValueError('model_unavailable')):
+            status, body = self.post(self.url+'/retry', {})
+        self.assertEqual(body['assistant_status'], 'retry')
+        self.assertIn('temporarily unavailable', body['assistant_error'])
+        self.assertIn('Your message is saved', body['assistant_error'])
+
     def test_persistent_rate_limit_reports_http_category_without_content(self):
         from urllib.error import HTTPError
         self.start('Two reels')

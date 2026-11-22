@@ -1,0 +1,16 @@
+#!/bin/bash
+# Runs the BidPilot server in the foreground (launchd keeps it alive).
+# The public chat address comes from ~/.bidpilot/current_chat_origin, which
+# start_all.sh writes; the owner token stays in ~/.bidpilot/owner_token.
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+ORIGIN_FILE="$HOME/.bidpilot/current_chat_origin"
+PY="${BIDPILOT_PYTHON:-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3}"
+ARGS=(-u -B server.py --port 8765
+      --embed-origin "https://alex-studio.geo.hashmeta.tech,https://sh5gnpnc.qwenwork.page"
+      --qwenwork-secret-file "$HOME/.bidpilot/qwenwork_callback_secret")
+if [[ -s "$ORIGIN_FILE" ]]; then
+  ARGS+=(--public-origin "$(tr -d '[:space:]' < "$ORIGIN_FILE")")
+fi
+cd "$HERE"
+exec "$PY" "${ARGS[@]}"
