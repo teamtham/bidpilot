@@ -57,6 +57,23 @@ class OwnerSessionTests(unittest.TestCase):
         public = {"Host": "public.example.com", "Cookie": "bidpilot_owner=" + self.owner}
         self.assertEqual(fetch(self.base + "/?owner=" + self.owner, public)[0], 403)
 
+    def test_browser_without_owner_link_gets_plain_page_not_json(self):
+        status, _ = fetch(self.base + "/dashboard", {"Accept": "text/html"})
+        self.assertEqual(status, 403)
+        req = __import__("urllib.request").request.Request(self.base + "/dashboard", headers={"Accept": "text/html"})
+        try:
+            __import__("urllib.request").request.urlopen(req)
+        except urllib.error.HTTPError as err:
+            body = err.read().decode()
+        self.assertIn("Open your owner link on this Mac", body)
+        self.assertNotIn(self.owner, body)
+        public = {"Accept": "text/html", "Host": "public.example.com"}
+        req = urllib.request.Request(self.base + "/dashboard", headers=public)
+        try:
+            urllib.request.urlopen(req)
+        except urllib.error.HTTPError as err:
+            self.assertIn("owner token required", err.read().decode())
+
     def test_bad_token_never_sets_cookie(self):
         status, headers = fetch(self.base + "/?owner=nope")
         self.assertEqual(status, 403)
