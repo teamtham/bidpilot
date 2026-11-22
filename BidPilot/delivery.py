@@ -126,7 +126,7 @@ def queue(conn, version, token, review_digest, chosen):
     url = base + '/p/' + token if base else '/p/' + token
     page = json.loads(version['page_json'])
     counter = conn.execute("SELECT 1 FROM proposal_versions WHERE deal_id=? AND id<>? AND status IN ('published','superseded','confirmed')", (version['deal_id'], version['id'])).fetchone()
-    subject = 'Alex Studio: ' + ('your revised proposal' if counter else 'your proposal')
+    subject = 'Alex Tan Productions: ' + ('your revised proposal' if counter else 'your proposal')
     body = page['headline'] + '\n\n' + page['introduction'] + '\n\nReview your private proposal:\n' + url
     conn.execute('INSERT INTO proposal_outbox(version_id,recipient,review_digest,option_ids_json,url,subject,body,message_id,status,error,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                  (version['id'], target['email'], review_digest, db.j(chosen), url, subject, body,
