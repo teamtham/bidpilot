@@ -454,6 +454,28 @@ STEP_KEYS = frozenset(("claimed", "intake", "scoping", "engine", "draft", "outbo
 STEP_STATUSES = frozenset(("running", "ok", "blocked", "error", "skipped"))
 
 
+def send_question(conn, deal_id, question):
+    """Founder-approved follow-up question for a needs-information deal.
+
+    Records the approved wording against the deal (the agent relays it to the
+    client) and keeps the deal waiting for the client's reply.
+    """
+    deal = conn.execute("SELECT status FROM deals WHERE id=?", (deal_id,)).fetchone()
+    if deal is None:
+        raise ValueError("deal_not_found")
+    if deal["status"] != "needs_information":
+        raise ValueError("status=" + deal["status"])
+    if not isinstance(question, str) or not question.strip() or len(question) > 4000:
+        raise ValueError("question_required")
+    info = needs_information_of(conn, deal_id)
+    record_step(conn, deal_id, None, "needs_information", "ok",
+                json.dumps({"missing_fields": info.get("missing_fields", []),
+                            "question": question.strip(), "question_sent": True}),
+                trigger="manual")
+    conn.commit()
+    return {"ok": True}
+
+
 def needs_information_of(conn, deal_id):
     """What a needs-information deal is missing, from the latest structured record.
 
@@ -472,6 +494,8 @@ def needs_information_of(conn, deal_id):
             result = {"missing_fields": list(data["missing_fields"]), "source": "run_step"}
             if isinstance(data.get("question"), str):
                 result["question"] = data["question"]
+            if data.get("question_sent"):
+                result["question_sent"] = True
             break
     for kind, payload in conn.execute("SELECT kind, payload_json FROM agent_outputs WHERE deal_id=?"
                                       " AND kind IN ('intake','clarification')"
@@ -741,7 +765,9 @@ def enter_manual_estimate(conn, args):
     offer = conn.execute('SELECT * FROM offers WHERE deal_id=? ORDER BY round DESC LIMIT 1', (args['deal_id'],)).fetchone()
     if not offer:
         raise ValueError('offer_required')
-    rate = conn.execute('SELECT * FROM estimate_rate_versions ORDER BY rowid DESC LIMIT 1').fetchone()
+    rate = (conn.execute('SELECT * FROM estimate_rate_versions WHERE version=?', (args['rate_version'],)).fetchone()
+            if args.get('rate_version') else
+            conn.execute('SELECT * FROM estimate_rate_versions ORDER BY rowid DESC LIMIT 1').fetchone())
     if not rate:
         raise ValueError('approved_rate_version_required')
     rates = uj(rate['rates_json'])
@@ -754,7 +780,7 @@ def enter_manual_estimate(conn, args):
             'items': [{'id': 'manual', 'role': role['role'], 'basis': 'Owner supplied estimate', 'quantity': 1, 'unit_hours': hours,
                        'cost_rate_cents': role['cost_rate_cents'], 'sell_rate_cents': role['sell_rate_cents']}],
             'expenses': [{'cost_cents': round(request['offer']['direct_costs_sgd'] * 100), 'sell_cents': round(price * 100) - labor}],
-            'tasks': [{'id': 'manual', 'resources': [role['role']], 'minutes': __import__('math').ceil(hours * 60),
+            'tasks': [{'id': 'manual', 'resources': list(args.get('resources', [role['role']])), 'minutes': __import__('math').ceil(hours * 60),
                        'item_ids': ['manual'], 'release_at': request['as_of'] + 'T00:00:00',
                        'deadline': request['offer']['deadline'] + 'T23:59:59', 'depends_on': []}]}
     estimating.detailed_estimate(spec)
@@ -1305,6 +1331,8 @@ def approve(conn, version_id, selected_option_id=None, actor="alex",
             _step(conn, deal["id"], "capacity_revalidate", "ok",
                   f"Options revalidated safe against current capacity; snapshot="
                    f"{snapshot_validated}", version["offer_id"], trigger="manual")
+        conn.execute("UPDATE proposal_versions SET client_url_private=? WHERE id=?",
+                     (f"/p/{token}", version_id))
         if send_email:
             delivery.queue(conn, version, token, release_review, release_options)
         conn.commit()
@@ -1514,8 +1542,8 @@ def rotate_token(conn, version_id, actor="alex"):
             return {"ok": False, "reasons": [f"status={version['status']}"]}
         token = secrets.token_urlsafe(24)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
-        conn.execute("UPDATE proposal_versions SET token_hash=? WHERE id=?",
-                     (token_hash, version_id))
+        conn.execute("UPDATE proposal_versions SET token_hash=?, client_url_private=? WHERE id=?",
+                     (token_hash, f"/p/{token}", version_id))
         conn.execute(
             "INSERT INTO approvals (id, version_id, actor_id, action, reviewed_digest,"
             " note, decided_at) VALUES (?,?,?,?,?,?,?)",

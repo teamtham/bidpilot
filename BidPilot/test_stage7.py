@@ -174,7 +174,9 @@ class Stage7Tests(unittest.TestCase):
         self.assertIn("Loading deals", html)  # placeholder pre-JS
         self.assertIn("async function refresh()", html)
         self.assertIn("refresh();", html)
-        self.assertIn("importFixture(0)", html)
+        # Fixture loaders moved to Studio tools > Demo tools (one per FIXTURE).
+        self.assertIn("importFixture(", html)
+        self.assertIn("const FIXTURES = ", html)
 
     # -- 2: explicit captioned-count fields on the client change form ---------
     def test_client_change_form_has_explicit_captioned_count_fields(self):
