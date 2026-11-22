@@ -111,8 +111,10 @@ class ExpandedLifecycle(Journey):
         flow = self.publish("creative-requests", "Creative Cafe")
         status, page = self.http("GET", flow["url"])
         self.assertEqual(status, 200, page)
-        self.assertIn(b"Explore studio work", page)
-        self.assertIn(b"/creative-change", page)
+        # The studio-assistant change chat replaced the "Explore studio work"
+        # library on the client page; the structured routes stay available.
+        self.assertNotIn(b"Explore studio work", page)
+        self.assertIn(b'id="cc-form"', page)
         self.assertIn(b'id="rc-count" type="number" min="1" value="3"', page)
         self.assertIn(b'id="rc-captions" type="number" min="0" value="3"', page)
         self.assertIn(b'id="rc-deadline" type="date" value="2026-12-11"', page)

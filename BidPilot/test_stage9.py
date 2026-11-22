@@ -126,7 +126,7 @@ class Stage9BrowserTests(unittest.TestCase):
             page.goto(self.base + f["url"])
             url_before = page.url
             # fill the real form with the adversarial text + explicit counters
-            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
+            page.get_by_role('button', name='Open the form', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
@@ -172,7 +172,7 @@ class Stage9BrowserTests(unittest.TestCase):
             r.method == "POST" and r.url.endswith("/request-change")) else None)
         try:
             page.goto(self.base + f["url"])
-            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
+            page.get_by_role('button', name='Open the form', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
@@ -200,7 +200,7 @@ class Stage9BrowserTests(unittest.TestCase):
         page.route("**/request-change", lambda route: route.abort())
         try:
             page.goto(self.base + f["url"])
-            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
+            page.get_by_role('button', name='Open the form', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
@@ -243,7 +243,7 @@ class Stage9BrowserTests(unittest.TestCase):
         page = self.browser.new_page()
         try:
             page.goto(self.base + f["url"])
-            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
+            page.get_by_role('button', name='Open the form', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
