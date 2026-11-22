@@ -292,7 +292,7 @@ function briefRows(raw,off,d){
  var ch={};var v=latest(raw);((v&&v.comparison&&v.comparison.changed_fields)||[]).forEach(function(f){ch[f.field]=f.old});
  function was(k,fmt){return ch[k]!=null?' (was '+fmt(ch[k])+')':''}
  var miss=function(name){return (d.missing||[]).indexOf(name)>-1};
- var rows=[['Videos',off.deliverables!=null?off.deliverables+was('deliverables',String):null],['Captioned versions',off.caption_versions!=null?off.caption_versions+was('caption_versions',String):null],['Deadline',off.deadline?lab(off.deadline)+was('deadline',lab):null],['Budget',(off.budget_sgd!=null&&!miss('Budget'))?'About '+money(off.budget_sgd)+was('budget_sgd',function(x){return money(x)}):null]];
+ var rows=[['Videos',off.deliverables!=null?off.deliverables+was('deliverables',String):null],['Captioned versions',off.caption_versions!=null?off.caption_versions+was('caption_versions',String):null],['Deadline',(off.deadline&&!miss('Deadline'))?lab(off.deadline)+was('deadline',lab):null],['Budget',(off.budget_sgd!=null&&!miss('Budget'))?'About '+money(off.budget_sgd)+was('budget_sgd',function(x){return money(x)}):null]];
  return rows}
 
 /* ---------- calendar maths (live) ---------- */
@@ -312,7 +312,7 @@ function stat(d){switch(d.phase){
 function headChip(d){
  if(d.phase==='counter'||d.phase==='review'){if(d.stale)return ['Needs a fresh estimate','warn'];return d.est&&d.est.fit?['Fits as asked','ok']:['Doesn’t fit as asked','bad']}
  return stat(d)}
-function railCard(d){var t=stat(d);return '<button class="card-deal'+(d.phase==='test'?' test':'')+'" data-act="open" data-id="'+d.id+'"'+(S.deal===d.id?' aria-current="true"':'')+'><b>'+esc(d.client)+'</b><span class="sub">'+esc(d.rcv)+' · '+esc(d.src)+'</span><span class="chip '+t[1]+'">'+t[0]+'</span></button>'}
+function railCard(d){var t=stat(d);return '<button class="card-deal'+(d.phase==='test'?' test':'')+'" data-act="open" data-id="'+d.id+'"'+(S.deal===d.id?' aria-current="true"':'')+'><b>'+esc(d.client)+(d.raw.is_sample?' <span class="chip info">Sample</span>':'')+'</b><span class="sub">'+esc(d.rcv)+' · '+esc(d.src)+'</span><span class="chip '+t[1]+'">'+t[0]+'</span></button>'}
 function rail(){
  var all=ORDER.map(function(k){return DEALS[k]});
  var real=all.filter(function(d){return d.phase!=='test'}),tests=all.filter(function(d){return d.phase==='test'});
@@ -449,7 +449,7 @@ function histHtml(d){
  var total=d.raw.steps_total||steps.length;
  var more=total>show.length?'<p class="note">Showing the latest '+show.length+' of '+total+' steps. Repeated checks that found nothing new are no longer logged. <button class="link" data-act="more">Show earlier</button></p>':'';
  return '<ul class="tl">'+rows+'</ul>'+more}
-function head(d){var c=headChip(d);return '<div class="head"><div><h1>'+esc(d.title)+'</h1><p class="meta">'+esc(d.src)+' · received '+esc(d.rcv)+'</p></div><span class="chip '+c[1]+'">'+c[0]+'</span></div>'}
+function head(d){var c=headChip(d);return '<div class="head"><div><h1>'+esc(d.title)+(d.raw.is_sample?' <span class="chip info" style="vertical-align:middle">Sample</span>':'')+'</h1><p class="meta">'+esc(d.src)+' · received '+esc(d.rcv)+'</p></div><span class="chip '+c[1]+'">'+c[0]+'</span></div>'}
 function approvalAt(d,action){var a=(d.raw.approvals||[]).filter(function(x){return x.action===action});return a.length?when(a[a.length-1].decided_at):''}
 function sentCard(d){
  var v=d.v,url=v&&v.client_url?location.origin+v.client_url:'';
