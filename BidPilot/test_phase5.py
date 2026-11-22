@@ -34,6 +34,7 @@ def _db(path):
 
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23",
     "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {
@@ -215,7 +216,7 @@ class Phase5Tests(unittest.TestCase):
         status, html = self.get(f"/preview/{version_id}")
         self.assertEqual(status, 200)
         self.assertIn("S$2,700.00", html)
-        self.assertIn("As proposed", html)
+        self.assertIn("As offered", html)
         self.assertIn("Preview only", html)
         status, _ = self.get(f"/preview/{version_id}", token=False)
         self.assertEqual(status, 403)
@@ -301,7 +302,8 @@ class Phase5Tests(unittest.TestCase):
                                   "hold_scope": 4000, "phased": 4000})
         labels = {m["option_id"]: m["label"]
                   for m in deal["versions"][1]["option_meta"]}
-        self.assertEqual(labels["phased"], "Phased delivery")
+        self.assertEqual(labels["phased"], "Phased")
+        self.assertEqual(labels["hold_scope"], "Keep all five")
 
         # clean check and approval of the counter version
         _, text = self.post("/api/check", {"version_id": v2})

@@ -42,16 +42,9 @@ flowchart TD
     client -. "change request → fresh run" .-> intake
 ```
 
-A client fills in the quote form on the founder's Hashmeta site. A QwenWork scheduled task picks up
-the lead, and the intake and scoping Skills turn the free-text brief into a structured offer with
-comparable past jobs. The **Commitment Engine** (plain Python) plans the hours, checks them against
-the founder's real calendar capacity, and compares the budget with the list price and a cost floor,
-returning `accept`, `counter`, `clarify` or `decline` plus safe alternative options. The negotiator
-Skill writes the client message using only those public options. The **outbound gate** blocks any
-draft that leaks private numbers, unapproved terms or other clients' names. Nothing reaches the
-client until the founder approves that exact version. The client sees only the approved options on a
-private link, can request changes (which start a fresh run), and can pick an option for the founder
-to confirm. After booking, QwenWork drafts an anonymised case study back on the Hashmeta site.
+A buyer can start a private conversation, upload a reference video and point to the moments they want Alex to recreate. QwenWork can discuss the brief directly, interpret timestamped frames and retrieve relevant studio work. BidPilot prices the resulting scope against Alex’s history, rate card, cost floor and availability. Alex reviews the estimate and sees how a booking would affect other open proposals.
+
+Alex approves the exact commercial terms before BidPilot releases a private proposal website. The buyer can watch examples, request a different creative direction or select a package. After booking, additional work goes through a priced amendment with buyer and founder approval. At closeout Alex records the work actually delivered and the hours spent so eligible jobs can inform the next quote. [Run the local buyer and founder workflow](docs/RUNNING.md).
 
 ## QwenWork vs Python
 
@@ -102,7 +95,7 @@ token). The sample intake form is at `http://127.0.0.1:8765/quote`.
 ## Tests
 
 ```sh
-# main suite — 118 tests
+# main suite — 137 tests (5 currently skipped)
 (cd BidPilot && python3 -B -m unittest discover -p 'test_*.py')
 # Commitment Engine unit tests — 6 tests
 (cd BidPilot/bidpilot-engine && python3 -B -m unittest -v test_engine.py)

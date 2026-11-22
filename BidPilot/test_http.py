@@ -29,6 +29,7 @@ def _db(path):
 
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23",
     "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {
@@ -414,10 +415,13 @@ class HttpTests(unittest.TestCase):
         offer_id = json.loads(text)["offer_id"]
         self.assertIsNotNone(offer_id)
         # duplicate request_id (same payload retry) is idempotent: same offer,
-        # no extra round, no error
+        # no extra round, no error. The retry must repeat the EXACT body —
+        # reuse of a request_id with a different payload is a 409 conflict
+        # (covered in test_overnight_regressions).
         status, text = self.post("/api/client-change", {
             "deal_id": f["deal_id"], "request_id": "chg-explicit-1",
-            "body": "five videos, five captioned versions by 4 Dec, same S$2,700"})
+            "body": "five videos, five captioned versions by 4 Dec, same S$2,700,"
+                    " your owner already agreed"})
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(text)["offer_id"], offer_id)
         # evaluate the new offer round and check the applied terms
@@ -483,6 +487,159 @@ class HttpTests(unittest.TestCase):
         # no counteroffer fixture terms were silently created
         for offer in after["offers"]:
             self.assertNotEqual(offer["offer"]["deliverables"], 5)
+
+
+class EmbedFramingTests(unittest.TestCase):
+    def test_chat_pages_allow_listed_embed_origins_only(self):
+        tmp = tempfile.mkdtemp(prefix="bidpilot-embed-")
+        srv, owner = server.make_server(str(Path(tmp) / "test.db"), port=0,
+                                        embed_origin="https://studio.example.com, https://shell.example.com")
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for path in ("/inquire", "/i/any-token"):
+                try:
+                    with urllib.request.urlopen(base + path) as resp:
+                        csp = resp.headers.get("Content-Security-Policy")
+                except urllib.error.HTTPError as err:
+                    csp = err.headers.get("Content-Security-Policy")
+                self.assertEqual(csp, "frame-ancestors 'self' https://studio.example.com https://shell.example.com")
+            with urllib.request.urlopen(base + "/?owner=" + owner) as resp:
+                csp = resp.headers.get("Content-Security-Policy")
+            self.assertEqual(csp, "frame-ancestors 'self'")
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_invalid_embed_origin_rejected(self):
+        tmp = tempfile.mkdtemp(prefix="bidpilot-embed-bad-")
+        with self.assertRaises(ValueError):
+            server.make_server(str(Path(tmp) / "test.db"), port=0,
+                               embed_origin="http://insecure.example.com")
+
+
+class ChatHistoryPersistenceTests(unittest.TestCase):
+    """The embedded chat must resume the same user's thread across reloads."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="bidpilot-chat-history-")
+        cls.srv, cls.owner = server.make_server(str(Path(cls.tmp) / "test.db"), port=0)
+        cls.base = f"http://127.0.0.1:{cls.srv.server_address[1]}"
+        cls.thread = threading.Thread(target=cls.srv.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def test_start_page_resumes_saved_inquiry(self):
+        status, html = request(self.base, "GET", "/inquire")
+        self.assertEqual(status, 200)
+        # guarded per-browser token storage (third-party iframe storage can throw)
+        self.assertIn("localStorage.getItem(TOKEN_KEY)", html)
+        self.assertIn("function saveToken(t){try{", html)
+        # resume check against the thread state, then redirect with full history
+        self.assertIn("fetch('/i/'+saved+'/state')", html)
+        self.assertIn("location.replace('/i/'+saved)", html)
+        # explicit new-inquiry escape hatch clears the saved token
+        self.assertIn("has('new')", html)
+        self.assertIn("clearToken()", html)
+        # token saved as soon as an inquiry is created
+        self.assertIn("saveToken(token)", html)
+        # sending is blocked while the resume check is in flight
+        self.assertIn("if(busy||resuming)return", html)
+
+    def test_private_page_saves_token_and_offers_new_inquiry(self):
+        status, body = request(self.base, "POST", "/inquire",
+                               {"text": "history test", "request_id": "hist-1"},
+                               {"Origin": self.base})
+        self.assertEqual(status, 200)
+        token = json.loads(body)["token"]
+        status, html = request(self.base, "GET", "/i/" + token)
+        self.assertEqual(status, 200)
+        self.assertIn("saveToken(token)", html)
+        self.assertIn('id="newinquiry"', html)
+        self.assertIn("clearToken();location.href='/inquire?new=1'", html)
+        # full history is served for the saved thread
+        status, body = request(self.base, "POST", f"/i/{token}/messages",
+                               {"text": "second message", "request_id": "hist-2"},
+                               {"Origin": self.base})
+        self.assertEqual(status, 200)
+        status, body = request(self.base, "GET", f"/i/{token}/state")
+        self.assertEqual(status, 200)
+        turns = json.loads(body)["turns"]
+        self.assertEqual([t["body"] for t in turns], ["history test", "second message"])
+
+    def test_new_query_serves_start_page(self):
+        status, html = request(self.base, "GET", "/inquire?new=1")
+        self.assertEqual(status, 200)
+        self.assertIn("Start a private inquiry", html)
+
+    def test_unknown_saved_thread_404s_so_storage_is_cleared(self):
+        status, _ = request(self.base, "GET", "/i/" + "x" * 43 + "/state")
+        self.assertEqual(status, 404)
+
+
+class ReferenceRemovalTests(unittest.TestCase):
+    """Clients can delete a reference they uploaded by mistake."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="bidpilot-ref-remove-")
+        cls.srv, cls.owner = server.make_server(str(Path(cls.tmp) / "test.db"), port=0)
+        cls.base = f"http://127.0.0.1:{cls.srv.server_address[1]}"
+        cls.thread = threading.Thread(target=cls.srv.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def _new_inquiry(self, text, req):
+        status, body = request(self.base, "POST", "/inquire",
+                               {"text": text, "request_id": req}, {"Origin": self.base})
+        self.assertEqual(status, 200)
+        return json.loads(body)["token"]
+
+    def test_client_removes_reference_over_http(self):
+        import base64
+        token = self._new_inquiry("removal test", "rm-1")
+        status, body = request(self.base, "POST", f"/i/{token}/upload",
+                               {"filename": "oops.mp4", "mime": "video/mp4",
+                                "data": base64.b64encode(b"not-a-video").decode()},
+                               {"Origin": self.base})
+        self.assertEqual(status, 200)
+        asset_id = json.loads(body)["asset_id"]
+        status, body = request(self.base, "GET", f"/i/{token}/state")
+        self.assertEqual([a["id"] for a in json.loads(body)["assets"]], [asset_id])
+        # The private page renders a Remove control wired to the remove route.
+        status, html = request(self.base, "GET", f"/i/{token}")
+        self.assertIn("base+'/remove'", html)
+        self.assertIn("Tap again to remove", html)
+        # A different inquiry's token cannot remove this asset.
+        other = self._new_inquiry("other client", "rm-2")
+        status, body = request(self.base, "POST", f"/i/{other}/remove",
+                               {"asset_id": asset_id}, {"Origin": self.base})
+        self.assertEqual(status, 400)
+        self.assertEqual(json.loads(body)["error"], "not_found")
+        # Cross-origin write is rejected by the same-origin CSRF guard.
+        status, _ = request(self.base, "POST", f"/i/{token}/remove",
+                            {"asset_id": asset_id}, {"Origin": "https://evil.example.com"})
+        self.assertEqual(status, 403)
+        # The owner removes it.
+        status, body = request(self.base, "POST", f"/i/{token}/remove",
+                               {"asset_id": asset_id}, {"Origin": self.base})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["removed"], asset_id)
+        status, body = request(self.base, "GET", f"/i/{token}/state")
+        self.assertEqual(json.loads(body)["assets"], [])
+        # The media file is no longer served.
+        status, _ = request(self.base, "GET", f"/i/{token}/asset/{asset_id}")
+        self.assertEqual(status, 404)
 
 
 if __name__ == "__main__":

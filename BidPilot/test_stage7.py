@@ -27,6 +27,7 @@ from pathlib import Path
 import server
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23",
     "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {

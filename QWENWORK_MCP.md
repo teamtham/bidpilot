@@ -41,5 +41,11 @@ Import [qwenwork-bidpilot-mcp.json](qwenwork-bidpilot-mcp.json) as a second stdi
 | Scoping | `get_deal`, `get_scoping_history`, `save_agent_output` |
 | Engine and run | `evaluate_offer`, `record_step`, `check_draft`, `run_trace` |
 | Negotiator | `negotiation_payload`, `save_draft`, `save_agent_output` |
+| Buyer conversation | `get_conversation_context`, `commit_chat_turn`, `price_inquiry_scope` |
+| Reference interpretation | `get_reference_evidence`, `get_reference_frame`, `acknowledge_reference_update` |
+| Proposal website | `compose_proposal_page`, `search_portfolio`, `commit_portfolio_search` |
+| Additional work | `get_change_orders`, `price_additional_work`, `price_detailed_additional_work` |
 
 Use synthetic sample records and stable request IDs for retries. Keep scoping history and run traces private. The negotiator receives public options through `negotiation_payload`. Release and booking confirmation stay in the founder dashboard, and client acceptance stays on the token-holder page.
+
+The same runner handles private chat turns and portfolio searches on released proposal websites. Discover both through `list_pending_work`. A buyer can discuss a creative direction with QwenWork immediately. Only the founder can approve the commercial terms of the resulting revision. The [runtime skill](bidpilot-build-guide/bidpilot-runtime/SKILL.md) describes resuming a turn and delivering a result to the right proposal version.

@@ -20,6 +20,10 @@ def import_run(conn, bundle):
                                    bundle.get('option_ids'), bundle.get('steps'))
     if not all(isinstance(x, str) and x.strip() for x in (source, source_id, draft)):
         raise ValueError('missing_source_source_id_or_draft')
+    if source not in ('site', 'hashmeta', 'manual'):
+        # Same allowlist as MCP and HTTP import: internal offer namespaces
+        # (change:<request_id>) must never alias another deal's offer rows.
+        raise ValueError('invalid_source')
     if core.validate_offer_request(request):
         raise ValueError('invalid_offer_request')
     if (not isinstance(keys, list) or any(not isinstance(k, str) or not k for k in keys)
@@ -128,7 +132,19 @@ def reset_sample(conn, data):
         offers = f'SELECT id FROM offers WHERE deal_id IN ({sample})'
         evaluations = f'SELECT id FROM evaluations WHERE offer_id IN ({offers})'
         reservations = f'SELECT id FROM reservations WHERE deal_id IN ({sample})'
+        import conversation
+        conversation.reset_sample(conn)
         conditions = [
+            ('inquiry_proposal_links', f'version_id IN ({versions})'),
+            ('capacity_impacts', f'version_id IN ({versions}) OR reservation_id IN ({reservations})'),
+            ('resource_allocations', f'reservation_id IN ({reservations})'),
+            ('priced_briefs', f'offer_id IN ({offers})'),
+            ('offer_briefs', f'offer_id IN ({offers})'),
+            ('commerce_reference_requests', f'request_id IN (SELECT request_id FROM messages WHERE deal_id IN ({sample}))'),
+            ('priced_request_orders', f'order_id IN (SELECT id FROM change_orders WHERE deal_id IN ({sample}))'),
+            ('detailed_estimates', f'deal_id IN ({sample})'),
+            ('closeouts', f'deal_id IN ({sample})'),
+            ('change_orders', f'deal_id IN ({sample})'),
             ('allocations', f'reservation_id IN ({reservations})'),
             ('reservations', f'deal_id IN ({sample})'),
             ('confirmations', f'deal_id IN ({sample})'),

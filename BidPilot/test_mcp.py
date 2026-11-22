@@ -20,6 +20,7 @@ import core  # noqa: E402
 import db  # noqa: E402
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23",
     "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {
@@ -35,7 +36,20 @@ INQUIRY = {
 TOOL_NAMES = ["claim_intake", "get_deal", "evaluate_offer", "save_draft",
               "check_draft", "run_trace", "negotiation_payload"]
 AGENT_TOOL_NAMES = ["record_step", "save_agent_output", "get_scoping_history",
-                    "list_pending_work", "submit_change_offer"]
+                    "list_pending_work", "submit_change_offer", "reevaluate_offer"]
+
+# Explicit public tool contract. Owner-only commercial writes stay outside MCP.
+STUDIO_TOOL_NAMES = [
+    "price_inquiry_scope", "ask_decline_question", "acknowledge_reference_update", "bind_inquiry_deal",
+    "get_conversation_context", "commit_chat_turn", "start_reference_analysis",
+    "get_reference_evidence", "get_reference_frame", "correct_reference_observation",
+    "estimate_scope", "check_resource_schedule", "search_portfolio", "get_portfolio_frame", "commit_portfolio_search",
+    "compose_proposal_page",
+    "price_additional_work", "price_detailed_additional_work", "get_change_orders",
+    "claim_conversation_work", "return_conversation_work",
+    "save_producer_override", "merge_scope_setups", "split_scope_setup",
+    "propose_scope_alternatives",
+]
 
 
 class Client:
@@ -130,13 +144,35 @@ class MCPTests(unittest.TestCase):
         self.initialize()
         resp = self.client.request("tools/list")
         tools = resp["result"]["tools"]
-        self.assertEqual([t["name"] for t in tools], TOOL_NAMES + AGENT_TOOL_NAMES)
+        self.assertCountEqual([t["name"] for t in tools], TOOL_NAMES + AGENT_TOOL_NAMES + STUDIO_TOOL_NAMES)
         for t in tools:
             self.assertEqual(t["inputSchema"]["type"], "object")
-        text = json.dumps(tools)
-        for banned in ("approve", "release", "rotate", "booking", "confirm",
+        names = " ".join(t["name"] for t in tools).lower()
+        for banned in ("approve", "release", "rotate", "booking", "confirm_booking",
                        "sql", "shell", "exec", "file"):
-            self.assertNotIn(banned, text.lower())
+            self.assertNotIn(banned, names)
+        descriptions = {tool["name"]: tool["description"] for tool in tools}
+        self.assertIn("needs_information", descriptions["claim_intake"])
+        self.assertIn("no fabricated defaults", descriptions["claim_intake"])
+        self.assertIn("needs_information", descriptions["list_pending_work"])
+
+        commit = next(t for t in tools if t["name"] == "commit_chat_turn")
+        props = commit["inputSchema"]["properties"]
+        facts = props["fact_changes"]["items"]
+        self.assertEqual(facts["required"],
+                         ["subject", "value", "status", "source_sequence"])
+        self.assertEqual(facts["properties"]["status"]["enum"],
+                         ["proposed", "confirmed", "excluded"])
+        self.assertIn("must equal through_sequence",
+                      facts["properties"]["source_sequence"]["description"])
+        cues = props["production_cues"]["items"]
+        self.assertEqual(cues["required"],
+                         ["observation_id", "body", "uncertainty"])
+        self.assertFalse(cues["additionalProperties"])
+        self.assertIn("attachment-only", props["through_sequence"]["description"])
+        self.assertIn("processed_sequence", props["through_sequence"]["description"])
+        self.assertIn("buyer-verified", commit["description"])
+        self.assertIn("linked production cues", commit["description"])
 
     def test_unknown_tool_rejected(self):
         self.initialize()

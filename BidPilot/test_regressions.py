@@ -3,6 +3,8 @@ option sets, and concurrency-safe approve/release.
 
 Run: python3 -B -m unittest -v test_regressions
 """
+import copy
+from contextlib import closing
 import json
 import sqlite3
 import sys
@@ -16,6 +18,7 @@ import core
 import db
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23",
     "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {
@@ -48,6 +51,111 @@ class RegressionTests(unittest.TestCase):
         outcome = core.check_draft(conn, version_id)
         self.assertTrue(outcome["passed"], outcome)
         return conn, deal_id, version_id
+
+    def counter_version(self, conn, subset=None):
+        request = copy.deepcopy(INQUIRY)
+        request['offer'].update(deliverables=5, caption_versions=5, deadline='2026-12-04')
+        deal, offer, _ = core.claim_or_resume(conn, 'regression', db.new_id(),
+                                             'Juniper Cafe', 'sample', request)
+        _, vid = core.evaluate(conn, deal, offer)
+        version = conn.execute('SELECT * FROM proposal_versions WHERE id=?', (vid,)).fetchone()
+        if subset:
+            rows = [r for r in core.options_of(conn, version) if r['option_key'] == subset]
+            conn.execute('UPDATE proposal_versions SET public_option_ids_json=?, import_option_keys_json=? WHERE id=?',
+                         (db.j([r['id'] for r in rows]), db.j([subset]), vid))
+            conn.commit()
+        return vid
+
+    def test_mixed_terms_every_buyer_copy_field_check_and_legacy_release(self):
+        locations = ['draft', 'headline', 'introduction', 'section_title', 'section_body',
+                     'portfolio_title', 'portfolio_description']
+        for location in locations:
+            for legacy in (False, True):
+                with self.subTest(location=location, legacy=legacy), closing(db.connect(':memory:')) as conn:
+                    core.load_seed(conn)
+                    vid = self.counter_version(conn)
+                    bad = 'Five videos by 4 Dec for S$2,050.'
+                    page = {}
+                    body = 'Choose an approved package below.'
+                    if location == 'draft':
+                        body = bad
+                    elif location in ('headline', 'introduction'):
+                        page[location] = bad
+                    elif location.startswith('section'):
+                        page['sections'] = [{location.split('_')[1]: bad}]
+                    else:
+                        page['portfolio'] = [{location.split('_')[1]: bad}]
+                    conn.execute('UPDATE proposal_versions SET draft_body=?, page_json=? WHERE id=?',
+                                 (body, db.j(page), vid))
+                    conn.commit()
+                    if legacy:
+                        v = conn.execute('SELECT * FROM proposal_versions WHERE id=?', (vid,)).fetchone()
+                        conn.execute("UPDATE proposal_versions SET status='checked', outbound_status='passed', checked_digest=? WHERE id=?",
+                                     (core.digest(v, core.options_of(conn, v)), vid))
+                        conn.commit()
+                        before = dict(conn.execute('SELECT * FROM proposal_versions WHERE id=?', (vid,)).fetchone())
+                        outcome = core.approve(conn, vid)
+                        self.assertFalse(outcome['ok'], outcome)
+                        self.assertIn('MULTI_OPTION_NUMERIC_PROSE', outcome['reasons'])
+                        self.assertEqual(before, dict(conn.execute('SELECT * FROM proposal_versions WHERE id=?', (vid,)).fetchone()))
+                    else:
+                        outcome = core.check_draft(conn, vid)
+                        self.assertFalse(outcome['passed'], outcome)
+                        self.assertIn('MULTI_OPTION_NUMERIC_PROSE', [v['code'] for v in outcome['violations']])
+                        self.assertFalse(core.approve(conn, vid)['ok'])
+                    self.assertEqual(conn.execute("SELECT COUNT(*) FROM approvals WHERE action='approve'").fetchone()[0], 0)
+
+    def test_single_and_phased_association_check_and_legacy_release(self):
+        examples = [('hold_date', 'Two videos by 4 Dec for S$2,050.', True),
+                    ('phased', 'Two videos by 4 Dec and three more by 18 Dec for S$4,000 total.', True),
+                    ('phased', 'Deliver 2 videos by 4 Dec and 3 videos by 18 Dec for S$4,000.', True),
+                    ('phased', 'Three videos by 4 Dec and two more videos by 18 Dec for S$4,000 total.', False)]
+        for subset, body, passed in examples:
+            for legacy in (False, True):
+                with self.subTest(subset=subset, body=body, legacy=legacy), closing(db.connect(':memory:')) as conn:
+                    core.load_seed(conn)
+                    vid = self.counter_version(conn, subset)
+                    conn.execute('UPDATE proposal_versions SET draft_body=? WHERE id=?', (body, vid))
+                    conn.commit()
+                    if not legacy:
+                        result = core.check_draft(conn, vid)
+                        self.assertEqual(result['passed'], passed, result)
+                    else:
+                        v = conn.execute('SELECT * FROM proposal_versions WHERE id=?', (vid,)).fetchone()
+                        conn.execute("UPDATE proposal_versions SET status='checked', outbound_status='passed', checked_digest=? WHERE id=?",
+                                     (core.digest(v, core.options_of(conn, v)), vid))
+                        conn.commit()
+                    self.assertEqual(core.approve(conn, vid)['ok'], passed)
+
+    def test_preview_release_exact_copy_and_buyer_selects_immutable_option(self):
+        import server
+        with closing(db.connect(':memory:')) as conn:
+            core.load_seed(conn)
+            vid = self.counter_version(conn)
+            self.assertTrue(core.check_draft(conn, vid)['passed'])
+            version = conn.execute('SELECT * FROM proposal_versions WHERE id=?', (vid,)).fetchone()
+            before = server.render_client_html(conn, version, preview=True)
+            released = core.approve(conn, vid)
+            self.assertTrue(released['ok'], released)
+            version = conn.execute('SELECT * FROM proposal_versions WHERE id=?', (vid,)).fetchone()
+            after = server.render_client_html(conn, version)
+            self.assertIn(version['draft_body'], before)
+            self.assertIn(version['draft_body'], after)
+            rows = core.options_of(conn, version)
+            chosen = next(r for r in rows if r['option_key'] == 'phased')
+            self.assertIn('2 videos by 2026-12-04', before)
+            self.assertIn('3 videos by 2026-12-18', after)
+            self.assertIn('S$4,000.00', after)
+            with self.assertRaises(ValueError):
+                core.check_draft(conn, vid)
+            self.assertFalse(core.client_accept(conn, released['token'], db.new_id())['ok'])
+            accepted = core.client_accept(conn, released['token'], chosen['id'])
+            self.assertTrue(accepted['ok'], accepted)
+            self.assertTrue(accepted['pending'])
+            recorded = conn.execute("SELECT option_ids_json FROM messages WHERE version_id=? AND direction='acceptance'", (vid,)).fetchone()
+            self.assertEqual(db.uj(recorded[0]), [chosen['id']])
+            self.assertEqual(db.uj(conn.execute('SELECT public_terms_json FROM options WHERE id=?', (chosen['id'],)).fetchone()[0]), db.uj(chosen['public_terms_json']))
+            self.assertEqual(conn.execute('SELECT status FROM deals WHERE id=?', (version['deal_id'],)).fetchone()[0], 'published')
 
     # -- C5: incomplete intake persists as needs_information ----------------
     def test_incomplete_intake_persists_needs_information(self):

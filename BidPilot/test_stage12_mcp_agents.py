@@ -9,7 +9,7 @@ from pathlib import Path
 import core
 import db
 import dashboard_ops
-from test_mcp import Client, INQUIRY, tool_error, tool_result, TOOL_NAMES
+from test_mcp import Client, INQUIRY, tool_error, tool_result, TOOL_NAMES, STUDIO_TOOL_NAMES
 
 
 class Stage12Tests(unittest.TestCase):
@@ -36,7 +36,8 @@ class Stage12Tests(unittest.TestCase):
         names = [x['name'] for x in self.client.request('tools/list')['result']['tools']]
         self.assertEqual(names[:7], TOOL_NAMES)
         self.assertEqual(set(names[7:]), {'record_step', 'save_agent_output',
-            'get_scoping_history', 'list_pending_work', 'submit_change_offer'})
+            'get_scoping_history', 'list_pending_work', 'submit_change_offer', 'reevaluate_offer',
+            *STUDIO_TOOL_NAMES})
         for name in ('approve', 'confirm_booking'):
             self.assertIn('error', self.client.call_tool(name, {}))
         for name, args in [

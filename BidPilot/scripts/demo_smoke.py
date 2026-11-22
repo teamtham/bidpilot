@@ -15,6 +15,7 @@ sys.path.insert(0, str(BASE))
 import server
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23", "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {"client": "Juniper Cafe", "format": "product_promo",
               "production_mode": "one_shoot_day", "shoot_days": 1, "locations": 1,
