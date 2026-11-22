@@ -30,6 +30,7 @@ else:
 import server
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23",
     "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {
@@ -125,6 +126,7 @@ class Stage9BrowserTests(unittest.TestCase):
             page.goto(self.base + f["url"])
             url_before = page.url
             # fill the real form with the adversarial text + explicit counters
+            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
@@ -170,6 +172,7 @@ class Stage9BrowserTests(unittest.TestCase):
             r.method == "POST" and r.url.endswith("/request-change")) else None)
         try:
             page.goto(self.base + f["url"])
+            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
@@ -197,6 +200,7 @@ class Stage9BrowserTests(unittest.TestCase):
         page.route("**/request-change", lambda route: route.abort())
         try:
             page.goto(self.base + f["url"])
+            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
@@ -239,6 +243,7 @@ class Stage9BrowserTests(unittest.TestCase):
         page = self.browser.new_page()
         try:
             page.goto(self.base + f["url"])
+            page.get_by_role('button', name='Request a change', exact=True).click(timeout=10000)
             page.fill("#rc", ADVERSARIAL)
             page.fill("#rc-count", "5")
             page.fill("#rc-captions", "5")
@@ -266,8 +271,9 @@ class Stage9BrowserTests(unittest.TestCase):
             page.on("request", lambda r: accept_posts.append(r.url) if (
                 r.method == "POST" and r.url.endswith("/accept")) else None)
             # click the rendered accept button on the phased-delivery card
-            phased = page.locator(".card.option", has_text="Phased delivery")
-            phased.locator("button[type='submit']").click()
+            phased = page.locator(".opt", has_text="Phased")
+            phased.locator("input[type='radio']").check(timeout=10000)
+            page.get_by_role('button', name='Accept this proposal', exact=True).click(timeout=10000)
             page.wait_for_timeout(900)  # accept triggers a reload after 800ms
             # no native navigation; the JSON POST is what fired
             self.assertEqual(accept_posts, [url_before + "/accept"])

@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 import urllib.parse
+import re
 from pathlib import Path
 
 import db
@@ -108,6 +109,29 @@ class IntakeFormTests(unittest.TestCase):
         self.assertEqual(first['deal_id'], second['deal_id'])
         pending = tool_result(self.client.call_tool('list_pending_work', {}))
         self.assertNotIn(receipt['source_id'], [x['source_id'] for x in pending['inquiries']])
+
+    def test_form_resume_proof_and_same_deal(self):
+        _, page = self.request('GET','/quote')
+        req = re.search(r'name="request_id" value="([^"]+)', page).group(1)
+        proof = re.search(r'name="resume_proof" value="([^"]+)', page).group(1)
+        fields = {**FIELDS, 'request_id':req, 'resume_proof':proof, 'caption_every_deliverable':'on'}
+        headers = {'Content-Type':'application/x-www-form-urlencoded','Origin':f'http://127.0.0.1:{self.port}'}
+        status, receipt = self.request('POST','/quote',urllib.parse.urlencode(fields),headers)
+        self.assertEqual(status,200)
+        self.assertIn('/i/'+proof,receipt)
+        self.assertEqual(self.request('GET','/i/'+proof+'/state')[0],200)
+        forged = json.loads(self.post(json.dumps({**FIELDS,'request_id':req,'resume_proof':'a'*43}))[1])
+        self.assertNotIn('inquiry_url',forged)
+        conn=db.connect(self.path)
+        self.assertNotIn(proof, '\n'.join(str(tuple(r)) for r in conn.execute('SELECT * FROM mcp_operations')))
+        row=conn.execute('SELECT r.source_id,r.inquiry_id FROM inquiry_receipts r').fetchone()
+        source_id,inquiry_id=row['source_id'],row['inquiry_id']
+        conn.execute('UPDATE inquiries SET processed_seq=1 WHERE id=?',(inquiry_id,))
+        conn.execute("UPDATE inquiry_jobs SET status='done' WHERE inquiry_id=?",(inquiry_id,))
+        conn.commit(); conn.close()
+        priced=tool_result(self.client.call_tool('price_inquiry_scope',{'inquiry_id':inquiry_id,'expected_revision':0,'offer_request':INQUIRY}))
+        claimed=tool_result(self.client.call_tool('claim_intake',dict(source='site',source_id=source_id,client='Juniper Cafe',raw_inquiry=FIELDS['project_brief'],offer_request=INQUIRY)))
+        self.assertEqual(priced['deal_id'],claimed['deal_id'])
 
 if __name__ == '__main__':
     unittest.main()

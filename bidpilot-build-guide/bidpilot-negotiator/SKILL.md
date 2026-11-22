@@ -20,7 +20,9 @@ The outbound check reads every number in the draft. Anything it can't match to a
 - Write counts as a number or number word followed by one of these units: "videos", "captioned versions", "revision rounds", "shoot days", "locations". Write "5 videos" or "5 captioned versions". "5 captioned promos" or "five clips" is blocked as UNRECOGNIZED_NUMBER.
 - Each count must equal a value in one of the approved options (or one of a phased option's phases).
 - Write prices as "S$4,000" or "S$4,000.00", matching an option's price exactly.
-- Write dates as "2026-12-04" or "4 December", matching an option's deadline or phase deadline exactly.
+- Write dates the way a client reads them: "4 Dec" (add the year only when it is not this year, e.g. "1 Jan 2027"), matching an option's deadline or phase deadline exactly. Never write ISO dates such as "2026-12-04" in client copy.
+- Write whole-dollar prices without cents ("S$4,000"); keep cents only when the price has them.
+- When you name an option, use the shared labels exactly: "As offered", "Keep the date", "Keep the budget", "Keep all <count in words>" (e.g. "Keep all five") and "Phased". Never use older names such as "Hold the date", "Fit your budget", "Full scope" or "Phased delivery".
 - Avoid ordinal and other number words outside those patterns: "first batch", "second phase", "two-step", "a third", "one", "half". Write "an early batch" and "a later batch" instead.
 - Never use these labels, even without a number: "price floor", "minimum rate", "capacity hours", "available hours", "planning hours", "internal floor".
 - Never name another client.

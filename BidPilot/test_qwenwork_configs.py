@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from test_mcp import STUDIO_TOOL_NAMES
 
 REPO = Path(__file__).resolve().parent.parent
 BIDPILOT_CONFIG = REPO / "qwenwork-bidpilot-mcp.json"
@@ -19,9 +20,10 @@ BRIDGE_CONFIG = REPO / "qwenwork-mcp.json"
 CHECKOUT_ROOT = "/Users/teamtham/hackathon"
 
 BIDPILOT_TOOLS = {
+    *STUDIO_TOOL_NAMES,
     "claim_intake", "get_deal", "evaluate_offer", "save_draft", "check_draft",
     "run_trace", "negotiation_payload", "record_step", "save_agent_output",
-    "get_scoping_history", "list_pending_work", "submit_change_offer",
+    "get_scoping_history", "list_pending_work", "submit_change_offer", "reevaluate_offer",
 }
 BRIDGE_TOOLS = {
     "project_summary", "read_project_file", "search_project", "project_diff",

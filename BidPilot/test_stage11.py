@@ -35,6 +35,7 @@ import server
 
 
 INQUIRY = {
+    "pricing_mode": "legacy_replay",
     "as_of": "2026-11-23",
     "comparable_ids": ["P-031", "P-036", "P-041", "P-044"],
     "offer": {"client": "Juniper Cafe", "format": "product_promo",
@@ -403,7 +404,8 @@ class Stage11Tests(unittest.TestCase):
         for banned in ("confirm_booking", "cancel_reservation", "reserve",
                        "modify_reservation", "release_capacity"):
             self.assertNotIn(banned, names)
-        self.assertEqual(len(names), 12)
+        from test_mcp import TOOL_NAMES, AGENT_TOOL_NAMES, STUDIO_TOOL_NAMES
+        self.assertEqual(names, set(TOOL_NAMES + AGENT_TOOL_NAMES + STUDIO_TOOL_NAMES))
         # client projection: no private ledger/metric terms cross the boundary
         version = conn.execute("SELECT * FROM proposal_versions WHERE id=?",
                                (f["version_id"],)).fetchone()

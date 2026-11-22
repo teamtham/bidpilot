@@ -25,6 +25,11 @@ import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import conversation
+import inquiry_quote
+import commerce
+import estimating
+import portfolio
 import core  # noqa: E402
 import db  # noqa: E402
 
@@ -131,6 +136,8 @@ def t_claim_intake(args):
             deal_id, offer_id, created = core.claim_or_resume(
                 conn, args["source"], args["source_id"], args["client"],
                 args["raw_inquiry"], args["offer_request"], require_sample=True, commit=False)
+            if args['source'] == 'site':
+                conn.execute('UPDATE inquiries SET deal_id=? WHERE id=(SELECT inquiry_id FROM inquiry_receipts WHERE source_id=?) AND (deal_id IS NULL OR deal_id=?)', (deal_id,args['source_id'],deal_id))
             if "evidence" in args:
                 conn.execute(
                     "INSERT OR IGNORE INTO agent_outputs "
@@ -230,6 +237,24 @@ def t_evaluate_offer(args):
                         " without re-running the engine."}
     finally:
         conn.close()
+
+
+def t_reevaluate_offer(args):
+    """Fresh evaluation for a stale offer: new round with identical terms,
+    evaluated against the current calendar. Idempotent per request_id."""
+    def write(conn):
+        _offer_of_deal(conn, args["deal_id"], args["offer_id"])
+        try:
+            new_offer = core.reevaluate(conn, args["offer_id"], commit=False)
+            eval_id, version_id = core.evaluate(conn, args["deal_id"], new_offer, commit=False)
+        except ValueError as exc:
+            raise ToolError(str(exc))
+        row = conn.execute("SELECT * FROM evaluations WHERE id=?", (eval_id,)).fetchone()
+        result = db.uj(row["result_json"])
+        return {"offer_id": new_offer, "evaluation_id": eval_id, "verdict": result["verdict"],
+                "reason_codes": result["reason_codes"], "estimate": result.get("estimate"),
+                "options": result.get("options"), "draft_version_id": version_id}
+    return _write_operation("reevaluate_offer", args, write)
 
 
 def t_save_draft(args):
@@ -465,6 +490,9 @@ def t_save_agent_output(args):
         if args.get("offer_id"):
             _offer_of_deal(conn, args["deal_id"], args["offer_id"])
         _validate_output(args["kind"], args["payload"])
+        prior = conn.execute("SELECT id, payload_json FROM agent_outputs WHERE deal_id=? AND offer_id IS ? AND kind=? ORDER BY rowid DESC LIMIT 1", (args["deal_id"], args.get("offer_id"), args["kind"])).fetchone()
+        if prior and db.uj(prior["payload_json"]) == args["payload"]:
+            return {"output_id": prior["id"]}
         output_id = db.new_id()
         conn.execute("INSERT INTO agent_outputs VALUES (?,?,?,?,?,?,?)", (output_id,
                      args["deal_id"], args.get("offer_id"), args["kind"], db.j(args["payload"]),
@@ -477,7 +505,7 @@ def t_get_scoping_history(args):
     conn = _connect()
     try:
         return {"private": True, "note": "Private scoping history; do not forward to the negotiator.",
-                "projects": [dict(r) for r in conn.execute("SELECT * FROM seed_past_projects ORDER BY rowid")]}
+                "projects": estimating.get_history(conn)}
     finally:
         conn.close()
 
@@ -491,10 +519,11 @@ def t_list_pending_work(args):
             "SELECT i.* FROM inbox i WHERE i.sample_data=1 AND NOT EXISTS "
             "(SELECT 1 FROM deals d WHERE d.source=i.source AND d.source_id=i.source_id) ORDER BY i.rowid")]
         changes = [{"deal_id": r["deal_id"], "request_id": r["request_id"], "body": r["body"],
-                    "version_id": r["version_id"], "is_current_published": bool(r["is_current"])}
-                   for r in conn.execute("SELECT m.*, (m.version_id=(SELECT id FROM proposal_versions WHERE deal_id=d.id AND status='published' ORDER BY version_no DESC LIMIT 1)) AS is_current "
-                     "FROM messages m JOIN deals d ON d.id=m.deal_id JOIN proposal_versions v ON v.id=m.version_id "
-                     "WHERE d.sample_data=1 AND m.direction='inbound' AND NOT EXISTS "
+                    "version_id": r["version_id"], "is_current_published": bool(r["is_current"]),
+                    **({"creative_request":db.uj(r["reference_json"]), "selected_option_id":r["chosen_option"]} if r["reference_json"] else {})}
+                   for r in conn.execute("SELECT m.*, cr.reference_json, cr.option_id AS chosen_option, (m.version_id=(SELECT id FROM proposal_versions WHERE deal_id=d.id AND status='published' ORDER BY version_no DESC LIMIT 1)) AS is_current "
+                     "FROM messages m LEFT JOIN commerce_reference_requests cr ON cr.request_id=m.request_id JOIN deals d ON d.id=m.deal_id JOIN proposal_versions v ON v.id=m.version_id "
+                     "WHERE d.sample_data=1 AND m.direction='inbound' AND m.request_id NOT LIKE 'additional:%' AND NOT EXISTS "
                      "(SELECT 1 FROM offers o WHERE o.deal_id=m.deal_id AND o.source='change:' || m.request_id) ORDER BY m.rowid")]
         # Client changes the proposal page already turned into a structured
         # offer (or that were submitted but not yet priced): the agent still
@@ -509,21 +538,49 @@ def t_list_pending_work(args):
             "WHERE d.sample_data=1 AND o.source LIKE 'change:%' AND NOT EXISTS "
             "(SELECT 1 FROM evaluations e WHERE e.offer_id=o.id) ORDER BY o.rowid")]
         needs_info = []
+        # A needs-information deal is listed once: while its latest
+        # needs_information step is the engine's 'queued' marker. After the
+        # agent has asked (blocked/ok) it stays off the list until new client
+        # input queues another step, so scheduled polls don't loop on it.
         for r in conn.execute(
                 "SELECT d.id AS deal_id, d.source, d.source_id, d.client, d.raw_inquiry,"
-                " (SELECT private_note FROM run_steps s WHERE s.deal_id=d.id"
-                "  AND s.step_key='needs_information' ORDER BY s.rowid DESC LIMIT 1) AS note"
+                " (SELECT status FROM run_steps s WHERE s.deal_id=d.id"
+                "  AND s.step_key='needs_information' ORDER BY s.rowid DESC LIMIT 1) AS last_status"
                 " FROM deals d WHERE d.sample_data=1 AND d.status='needs_information'"
                 " ORDER BY d.created_at").fetchall():
-            try:
-                missing = db.uj(r["note"]).get("missing_fields", []) if r["note"] else []
-            except (ValueError, TypeError, AttributeError):
-                missing = []
+            if r["last_status"] not in (None, "queued"):
+                continue
+            missing = core.needs_information_of(conn, r["deal_id"]).get("missing_fields", [])
             needs_info.append({"deal_id": r["deal_id"], "source": r["source"],
                                "source_id": r["source_id"], "client": r["client"],
                                "raw_inquiry": r["raw_inquiry"], "missing_fields": missing})
-        return {"inquiries": inquiries, "change_requests": changes,
+        work = {"inquiries": inquiries, "change_requests": changes,
                 "unevaluated_offers": unevaluated, "needs_information": needs_info}
+        work['proposal_compositions'] = [dict(r) for r in conn.execute(
+            "SELECT v.id AS version_id,v.deal_id,v.offer_id FROM proposal_versions v JOIN deals d ON d.id=v.deal_id "
+            "WHERE d.sample_data=1 AND v.status IN ('draft','checked','blocked') "
+            "AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=v.deal_id) "
+            "AND EXISTS (SELECT 1 FROM options o JOIN evaluations e ON e.id=o.evaluation_id WHERE e.offer_id=v.offer_id) "
+            "AND NOT EXISTS (SELECT 1 FROM proposal_compositions c WHERE c.version_id=v.id)")]
+        work['proposal_checks'] = [dict(r) for r in conn.execute(
+            "SELECT v.id AS version_id,v.deal_id FROM proposal_versions v JOIN proposal_compositions c ON c.version_id=v.id "
+            "WHERE v.status='draft' AND v.outbound_status='unchecked' "
+            "AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=v.deal_id)")]
+        import studio_assistant
+        work['studio_briefs'] = studio_assistant.pending(conn)
+        searches = portfolio.pending(conn)
+        if searches:
+            work["portfolio_searches"] = searches
+        turns = conversation.pending(conn)
+        if turns:
+            work["conversations"] = turns
+        additions = [dict(row) for row in conn.execute(
+            "SELECT m.deal_id,m.version_id,m.request_id,m.body, (SELECT r.reference_json FROM commerce_reference_requests r WHERE r.request_id=m.request_id) AS reference_json FROM messages m JOIN deals d "
+            "ON d.id=m.deal_id WHERE d.sample_data=1 AND m.request_id LIKE 'additional:%' "
+            "AND d.status='confirmed' AND NOT EXISTS (SELECT 1 FROM priced_request_orders p WHERE p.request_id=m.request_id) ORDER BY m.created_at")]
+        if additions:
+            work["additional_work"] = additions
+        return work
     finally:
         conn.close()
 
@@ -569,9 +626,12 @@ def t_submit_change_offer(args):
 TOOLS = [
     ("claim_intake", t_claim_intake,
      "Claim or resume a synthetic sample inquiry by stable (source, source_id)."
-     " Requires the engine's structured offer_request (as_of, offer fields,"
-     " comparable_ids, founder-supplied direct costs). Duplicate claims resume"
-     " the same deal and reuse its first offer."),
+     " Supply the engine's structured offer_request (as_of, offer fields,"
+     " comparable_ids, founder-supplied direct costs). If required fields are"
+     " missing, the deal is persisted as needs_information with no fabricated"
+     " defaults; ask the clarification, then call again with the same"
+     " (source, source_id) to resume. Duplicate complete claims reuse the"
+     " first offer."),
     ("get_deal", t_get_deal,
      "Read a scoped sample deal with its current offer (structured terms and raw"
      " evidence) and version history. Sample-data records only."),
@@ -601,9 +661,74 @@ TOOLS = [
 TOOLS += [("record_step", t_record_step, "Record an agent run step."),
           ("save_agent_output", t_save_agent_output, "Save private agent output."),
           ("get_scoping_history", t_get_scoping_history, "Read private scoping history."),
-          ("list_pending_work", t_list_pending_work, "List unclaimed sample inquiries, queued changes, and client change offers not yet evaluated."),
-          ("submit_change_offer", t_submit_change_offer, "Submit structured change terms.")]
+          ("list_pending_work", t_list_pending_work,
+           "List unclaimed sample inquiries, queued changes, unevaluated change"
+           " offers, and needs_information deals awaiting a clarification."),
+          ("submit_change_offer", t_submit_change_offer, "Submit structured change terms."),
+          ("reevaluate_offer", t_reevaluate_offer,
+           "Re-run a stale estimate: creates a new offer round with the identical terms and"
+           " evaluates it against the current calendar (the old round stays as history)."
+           " Idempotent per request_id. Never approves or sends anything.")]
 
+EXTENSIONS = {**inquiry_quote.MCP, **conversation.MCP_TOOLS, **estimating.MCP, **portfolio.MCP, **commerce.MCP}
+
+EXTENSION_DESCRIPTIONS = {
+    "get_conversation_context":
+        "Read transcript, resolved facts, references, current revision and processed_sequence. "
+        "processed_sequence is the last buyer sequence already consumed; it is context, not the "
+        "through_sequence to echo when committing. Answer the latest buyer sequence instead.",
+    "commit_chat_turn":
+        "Atomically append one buyer-facing reply, record buyer-grounded fact changes, and optionally "
+        "consume one queued media analysis with linked production cues. through_sequence must be the "
+        "latest buyer sequence (0 for an attachment-only inquiry), while expected_revision is the current "
+        "revision; do not copy processed_sequence as through_sequence. Fact status confirmed means buyer-"
+        "verified only, never studio approval. This tool cannot approve price, availability or proposals, "
+        "and cannot schedule work for the studio.",
+    "propose_scope_alternatives":
+        "Detect structural scope opportunities and build consistent alternative specs from "
+        "producer-supplied transformations: fewer masters via derivatives, combined shoots, "
+        "phased delivery, supplied footage. Effort values and dated bases must be supplied; "
+        "schedule coverage is rebalanced mechanically. Pass each selected variant's offer, spec "
+        "and phases into detailed pricing as detailed_alternatives. Never invents effort.",
+}
+
+
+def extension_call(name):
+    properties, required, operation = EXTENSIONS[name]
+    types = {"string": str, "object": dict, "array": list, "integer": int, "boolean": bool, "number": (float, int)}
+
+    def call(args):
+        if any(key not in args for key in required):
+            raise ToolError("missing_required_field")
+        for key, value in args.items():
+            if key not in properties:
+                raise ToolError("invalid_field:" + key)
+            allowed = properties[key]["type"]
+            allowed = allowed if isinstance(allowed, list) else [allowed]
+            if value is None and "null" in allowed:
+                continue
+            if not any(isinstance(value, types[k]) for k in allowed if k in types):
+                raise ToolError("invalid_field:" + key)
+            if ("integer" in allowed or "number" in allowed) and isinstance(value, bool):
+                raise ToolError("invalid_field:" + key)
+        conn = _connect()
+        try:
+            if "deal_id" in args:
+                _sample_deal(conn, args["deal_id"])
+            result = operation(conn, args)
+            conn.commit()
+            return result
+        except (ValueError, KeyError, TypeError, sqlite3.IntegrityError) as exc:
+            conn.rollback()
+            raise ToolError(str(exc))
+        finally:
+            conn.close()
+    return call
+
+
+TOOLS += [(name, extension_call(name), EXTENSION_DESCRIPTIONS.get(
+              name, name.replace("_", " ").capitalize() + " for this studio."))
+          for name in EXTENSIONS]
 TOOLS_BY_NAME = {name: fn for name, fn, _ in TOOLS}
 
 
@@ -625,7 +750,7 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": [
             {"name": name, "description": desc,
              "inputSchema": {"type": "object",
-                             "properties": _schema(name), **({"required": _required(name)} if name in ("record_step", "save_agent_output", "get_scoping_history", "list_pending_work", "submit_change_offer") else {})}}
+                             "properties": _schema(name), **({"required": _required(name)} if name in EXTENSIONS or name in ("record_step", "save_agent_output", "get_scoping_history", "list_pending_work", "submit_change_offer", "reevaluate_offer") else {})}}
             for name, _, desc in TOOLS]}}
     if method == "tools/call":
         params = msg.get("params") or {}
@@ -640,7 +765,7 @@ def handle(msg):
             arguments = params.get("arguments", {})
             if not isinstance(arguments, dict):
                 raise ToolError("invalid_arguments: expected object")
-            if name in ("record_step", "save_agent_output", "get_scoping_history", "list_pending_work", "submit_change_offer"):
+            if name in ("record_step", "save_agent_output", "get_scoping_history", "list_pending_work", "submit_change_offer", "reevaluate_offer"):
                 for field in _required(name):
                     if field not in arguments:
                         raise ToolError(f"missing_field:{field}")
@@ -651,6 +776,9 @@ def handle(msg):
                         if not isinstance(value, expected) or (field in _required(name) and expected is str and not value.strip()):
                             raise ToolError(f"invalid_field:{field}")
             result = fn(arguments)
+            if name in ("get_reference_frame", "get_portfolio_frame"):
+                return {"jsonrpc":"2.0", "id":msg_id, "result":{"content":[
+                    {"type":"image", "mimeType":result["mime"], "data":result["data_base64"]}]}}
             return {"jsonrpc": "2.0", "id": msg_id, "result": {
                 "content": [{"type": "text",
                              "text": json.dumps(result, ensure_ascii=False,
@@ -670,6 +798,8 @@ def handle(msg):
 
 
 def _schema(name):
+    if name in EXTENSIONS:
+        return EXTENSIONS[name][0]
     if name == "claim_intake":
         return {"source": {"type": "string"}, "source_id": {"type": "string"},
                 "client": {"type": "string"}, "raw_inquiry": {"type": "string"},
@@ -684,6 +814,9 @@ def _schema(name):
                 "request_id": {"type": "string"}}
     if name == "check_draft":
         return {"version_id": {"type": "string"}}
+    if name == "reevaluate_offer":
+        return {"deal_id": {"type": "string"}, "offer_id": {"type": "string"},
+                "request_id": {"type": "string"}}
     if name == "run_trace":
         return {"deal_id": {"type": "string"}}
     if name == "negotiation_payload":
@@ -702,10 +835,13 @@ def _schema(name):
 
 
 def _required(name):
+    if name in EXTENSIONS:
+        return EXTENSIONS[name][1]
     return {"record_step": ["deal_id", "step_key", "status", "request_id"],
             "save_agent_output": ["deal_id", "kind", "payload", "request_id"],
             "submit_change_offer": ["deal_id", "request_id", "version_id", "offer_request"],
-            "get_scoping_history": [], "list_pending_work": []}[name]
+            "get_scoping_history": [], "list_pending_work": [],
+            "reevaluate_offer": ["deal_id", "offer_id", "request_id"]}[name]
 
 
 def main():

@@ -331,7 +331,7 @@ def evaluate(request, data):
     reasons = []
     if estimate["planning_hours"] > available:
         reasons.append("CAPACITY_SHORTFALL")
-    if budget < estimate["floor_sgd"]:
+    if budget < estimate["floor_sgd"] or list_price < estimate["floor_sgd"]:
         reasons.append("BELOW_FLOOR")
     # Report excessive discount independently when it is the reason a viable-price
     # offer fails. Below-floor quotes already fail the stronger pricing rule.

@@ -10,3 +10,9 @@ __pycache__/
 node_modules/
 .env
 .env.*
+
+# Local studio credentials, media and optional Python runtime
+*.db.media/
+*.db-wal
+*.db-shm
+.venv/

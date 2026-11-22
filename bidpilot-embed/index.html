@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request a quote · Alex Studio</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #faf6ef; }
+  body { display: flex; flex-direction: column; font: 14px system-ui, sans-serif; }
+  #chat { flex: 1; width: 100%; border: 0; display: block; }
+  #bar { display: flex; justify-content: flex-end; padding: 4px 10px; background: #f1e8d8; color: #6b5b45; }
+  #bar a { color: #8a5a2b; text-decoration: none; }
+  #bar a:hover { text-decoration: underline; }
+  #loading { position: absolute; inset: 0 0 26px 0; display: flex; align-items: center; justify-content: center; color: #8a7a60; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="loading">Loading the studio chat…</div>
+<iframe id="chat" title="Alex Studio quote chat"
+  src="https://dom-satisfaction-disable-antique.trycloudflare.com/inquire"
+  allow="clipboard-write"
+  onload="document.getElementById('loading').style.display='none'"></iframe>
+<div id="bar"><a href="https://dom-satisfaction-disable-antique.trycloudflare.com/inquire" target="_blank" rel="noopener">Open chat in a new tab ↗</a></div>
+<noscript><p style="padding:1em">JavaScript is required for the chat. <a href="https://dom-satisfaction-disable-antique.trycloudflare.com/inquire">Open it directly</a>.</p></noscript>
+</body>
+</html>

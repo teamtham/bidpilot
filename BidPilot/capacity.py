@@ -14,6 +14,7 @@ allocation feasibility inside the confirmation transaction is authoritative.
 """
 import copy
 import json
+import math
 from datetime import date, timedelta
 
 import db
@@ -51,6 +52,60 @@ def baseline_weeks(data):
             for row in sorted(data["calendar_weeks"], key=lambda r: r["week_ending"])]
 
 
+def calendar_data(conn, data=None):
+    """Apply owner calendar settings to a copy of the immutable seed data."""
+    out = copy.deepcopy(data or _seed())
+    setting = conn.execute('SELECT working_hours FROM calendar_settings WHERE id=1').fetchone()
+    blocks = {row['week_ending']: row['hours'] for row in conn.execute(
+        'SELECT week_ending, SUM(hours) AS hours FROM calendar_blocks GROUP BY week_ending')}
+    for row in out['calendar_weeks']:
+        if setting:
+            row['working_hours'] = setting['working_hours']
+        row['calendar_busy_hours'] = float(row['calendar_busy_hours']) + blocks.get(row['week_ending'], 0)
+    return out
+
+
+def change_calendar(conn, action, data):
+    """Save a calendar change and revision atomically; never invent capacity."""
+    import core
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        if action == 'hours':
+            hours = data.get('hours')
+            if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or not 0 < hours <= 80:
+                raise ValueError('Enter working hours between 0 and 80.')
+            current = conn.execute('SELECT working_hours FROM calendar_settings WHERE id=1').fetchone()
+            if current and current['working_hours'] == hours:
+                revision = ledger_revision(conn)
+                conn.commit()
+                return revision
+            conn.execute('INSERT INTO calendar_settings VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET working_hours=excluded.working_hours', (hours,))
+        elif action == 'block':
+            week, hours, reason = data.get('week'), data.get('hours'), data.get('reason')
+            if week not in dict(baseline_weeks(_seed())):
+                raise ValueError('Choose a supported calendar week.')
+            if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not math.isfinite(hours) or not 0 < hours <= 80:
+                raise ValueError('Enter block hours between 0 and 80.')
+            if reason not in ('Leave', 'Admin', 'Outside booking'):
+                raise ValueError('Choose a reason for the block.')
+            conn.execute('INSERT INTO calendar_blocks VALUES (?,?,?,?,?)', (db.new_id(), week, hours, reason, db.now()))
+        elif action == 'remove':
+            if conn.execute('DELETE FROM calendar_blocks WHERE id=?', (data.get('id'),)).rowcount != 1:
+                raise ValueError('That block no longer exists.')
+        else:
+            raise ValueError('Unknown calendar action.')
+        revision = ledger_revision(conn) + 1
+        weeks = ledger(conn)
+        snapshot = {'revision': revision, 'weeks': [{'week': w, **v} for w, v in sorted(weeks.items())]}
+        conn.execute('INSERT INTO capacity_revisions VALUES (?,?,?,?)',
+                     (revision, core.seed_hash(core.seed_data()), db.j(snapshot), db.now()))
+        conn.commit()
+        return revision
+    except Exception:
+        conn.rollback()
+        raise
+
+
 # ---- durable ledger ---------------------------------------------------------
 
 
@@ -68,7 +123,7 @@ def ledger(conn, data=None, as_of=None, deadline=None):
 
     With as_of/deadline, only eligible weeks are included.
     """
-    weeks = baseline_weeks(data or _seed())
+    weeks = baseline_weeks(calendar_data(conn, data))
     alloc = allocated_cents(conn)
     out = {}
     for week, budget in weeks:
@@ -187,3 +242,95 @@ def engine_visible_capacity(data, as_of, deadline):
             - float(r["unscheduled_owed_hours"]))
         for r in data["calendar_weeks"] if eligible(r["week_ending"], as_of, deadline))
     return round(free * (1 - pct / 100), 2)
+
+
+def scoped_plan(weeks, as_of, terms, evaluation):
+    """Run the booking allocator on eligible weeks of a supplied ledger snapshot."""
+    permitted = {week: values for week, values in weeks.items()
+                 if eligible(week, as_of, terms["deadline"])}
+    return plan(permitted, option_demands(evaluation, terms))
+
+
+def booking_preview(conn, version_id, option_id):
+    """Read-only weekly and resource simulation for one candidate option.
+
+    Detailed options use the exact resource planner later called by booking
+    confirmation.  Its proposed allocations are layered in memory while other
+    published options are checked; no allocation, reservation, or revision is
+    written by this function.  Each public option remains an independent
+    alternative, not a tentative booking.
+    """
+    import estimating
+    candidate = conn.execute(
+        "SELECT v.*,o.as_of,e.result_json FROM proposal_versions v "
+        "JOIN offers o ON o.id=v.offer_id JOIN evaluations e ON e.offer_id=o.id "
+        "WHERE v.id=? AND v.status IN ('draft','checked','published')", (version_id,)
+    ).fetchone()
+    if not candidate or option_id not in db.uj(candidate["public_option_ids_json"]):
+        raise ValueError("option_unavailable")
+    opt = conn.execute("SELECT public_terms_json FROM options WHERE id=?", (option_id,)).fetchone()
+    if not opt:
+        raise ValueError("option_unavailable")
+    before = ledger(conn)
+    candidate_terms = db.uj(opt[0])
+    candidate_result = db.uj(candidate["result_json"])
+    allocation = scoped_plan(before, candidate["as_of"], candidate_terms, candidate_result)
+    resource = estimating.resource_check(conn, candidate_result, candidate_terms)
+    summary = {"fits": allocation is not None and resource["feasible"],
+               "weekly_fits": allocation is not None,
+               "resource_fits": resource["feasible"],
+               "resource": {"feasible": resource["feasible"],
+                            "blocked_task_id": resource.get("blocked_task_id"),
+                            "allocations": resource.get("allocations", [])},
+               "revision": ledger_revision(conn), "weeks": [], "affected": []}
+    if not summary["fits"]:
+        return summary
+    after = {week: dict(item) for week, item in before.items()}
+    for week, amount, milestone in allocation:
+        after[week]["residual"] -= amount
+        summary["weeks"].append({"week": week, "before": before[week]["residual"]/100,
+                                 "after": after[week]["residual"]/100,
+                                 "reserved": amount/100, "milestone": milestone})
+    rows = conn.execute(
+        "SELECT d.client,v.id AS version_id,v.offer_id,v.public_option_ids_json,"
+        "o.as_of,e.result_json FROM deals d JOIN proposal_versions v ON v.id=d.current_version_id "
+        "JOIN offers o ON o.id=v.offer_id JOIN evaluations e ON e.offer_id=o.id "
+        "WHERE d.id<>? AND v.status='published' AND d.status NOT IN ('closed','confirmed') "
+        "ORDER BY d.client,v.id", (candidate["deal_id"],))
+    for row in rows:
+        evaluation = db.uj(row["result_json"])
+        ids = db.uj(row["public_option_ids_json"])
+        selection = conn.execute("SELECT option_ids_json FROM messages WHERE version_id=? "
+                                 "AND direction='acceptance'", (row["version_id"],)).fetchone()
+        if selection:
+            ids = db.uj(selection[0])
+        lost = []
+        remaining = 0
+        for oid in ids:
+            terms_row = conn.execute("SELECT public_terms_json FROM options WHERE id=?", (oid,)).fetchone()
+            if not terms_row:
+                continue
+            terms = db.uj(terms_row[0])
+            before_weekly = scoped_plan(before, row["as_of"], terms, evaluation)
+            before_resource = estimating.resource_check(conn, evaluation, terms)
+            if before_weekly is None or not before_resource["feasible"]:
+                continue
+            after_weekly = scoped_plan(after, row["as_of"], terms, evaluation)
+            after_resource = estimating.resource_check(
+                conn, evaluation, terms, resource.get("allocations", []))
+            reasons = []
+            if after_weekly is None:
+                reasons.append("weekly_capacity")
+            if not after_resource["feasible"]:
+                reasons.append("resource_conflict")
+            if reasons:
+                lost.append({"kind": terms["option_id"], "deadline": terms["deadline"],
+                             "deliverables": terms["deliverables"], "price": terms["price_sgd"],
+                             "reasons": reasons,
+                             "blocked_task_id": after_resource.get("blocked_task_id")})
+            else:
+                remaining += 1
+        if lost:
+            summary["affected"].append({"client": row["client"], "version_id": row["version_id"],
+                                        "offer_id": row["offer_id"], "lost": lost, "remaining": remaining})
+    return summary
