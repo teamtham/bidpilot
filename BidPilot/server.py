@@ -251,6 +251,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/state":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
+                # Catch calendar changes made anywhere else (a client booking,
+                # another tool) so the dashboard never shows an out-of-date estimate.
+                refresh_stale_estimates(self.conn)
                 self.conn.execute("BEGIN")
                 return self.send_json(state(self.conn))
             if path.startswith("/p/"):
@@ -312,7 +315,9 @@ class Handler(BaseHTTPRequestHandler):
                 revision = core.cap.change_calendar(self.conn, path.rsplit('/', 1)[-1], data)
             except (ValueError, TypeError) as exc:
                 return self.send_json({'ok': False, 'message': str(exc)}, 400)
-            return self.send_json({'ok': True, 'revision': revision})
+            # Estimates follow the calendar: re-run the ones this change affects.
+            return self.send_json({'ok': True, 'revision': revision,
+                                   'rerun': refresh_stale_estimates(self.conn)})
         if path == "/api/capacity-preview":
             self.conn.execute("BEGIN")
             try:
@@ -442,6 +447,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/confirm-booking":
             res = core.confirm_booking(self.conn, data["version_id"])
+            if res["ok"]:
+                res["rerun"] = refresh_stale_estimates(self.conn)
             code = 200 if res["ok"] else 409
             return self.send_json(_explained(res), code)
 
@@ -1339,6 +1346,39 @@ async function requestChange(btn) {{
 def _esc(text):
     import html
     return html.escape(text or "", quote=True)
+
+
+def refresh_stale_estimates(conn):
+    """Re-run every open estimate the calendar has moved under.
+
+    A deal's latest, not-yet-sent version whose evaluation was made against an
+    older calendar revision is re-estimated on the current calendar, exactly as
+    the Re-run button did. Sent, booked, rejected and test deals are left alone.
+    Returns how many were re-run.
+    """
+    rev = capacity_panel(conn)["revision"]
+    rows = conn.execute(
+        "SELECT d.id AS deal_id, d.source, d.source_id, d.raw_inquiry, v.offer_id"
+        " FROM deals d JOIN proposal_versions v ON v.deal_id=d.id"
+        " AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=d.id)"
+        " JOIN evaluations e ON e.offer_id=v.offer_id"
+        " WHERE v.status IN ('draft','checked','blocked','evaluated')"
+        " AND d.status NOT IN ('closed','rejected','confirmed')"
+        " AND e.capacity_revision IS NOT NULL AND e.capacity_revision != ?"
+        " AND v.offer_id=(SELECT id FROM offers WHERE deal_id=d.id ORDER BY round DESC LIMIT 1)",
+        (rev,)).fetchall()
+    done = 0
+    for r in rows:
+        if deal_logic.is_test_deal(r["source"], r["source_id"], r["raw_inquiry"]):
+            continue
+        try:
+            offer_id = core.reevaluate(conn, r["offer_id"])
+            core.evaluate(conn, r["deal_id"], offer_id)
+            done += 1
+        except (ValueError, KeyError) as exc:
+            conn.rollback()
+            print(f"auto re-estimate skipped for {r['deal_id']}: {exc}", flush=True)
+    return done
 
 
 def capacity_panel(conn):

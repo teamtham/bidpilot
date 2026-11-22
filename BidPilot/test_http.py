@@ -263,6 +263,27 @@ class HttpTests(unittest.TestCase):
                        "BELOW_FLOOR", "planning_hours", "capacity_hours", "floor"):
             self.assertNotIn(banned, html)
 
+    def test_calendar_change_reruns_open_estimates(self):
+        """Estimates follow the calendar: no deal is left 'out of date'."""
+        imp = self.import_inquiry("auto-rerun-1")
+        _, text = self.post("/api/evaluate", {"deal_id": imp["deal_id"], "offer_id": imp["offer_id"]})
+        first = json.loads(text)["version_id"]
+        _, text = self.get("/api/state")
+        week = json.loads(text)["capacity"]["weeks"][0]["week"]
+        _, text = self.post("/api/calendar/block", {"week": week, "hours": 1, "reason": "Admin"})
+        res = json.loads(text)
+        self.assertTrue(res["ok"])
+        self.assertGreaterEqual(res["rerun"], 1)
+        _, text = self.get("/api/state")
+        deal = next(d for d in json.loads(text)["deals"] if d["deal_id"] == imp["deal_id"])
+        latest = deal["versions"][-1]
+        self.assertNotEqual(latest["version_id"], first)
+        self.assertFalse(latest["capacity_stale"])
+        self.assertFalse(deal["needs_fresh_estimate"])
+        with self.db() as conn:       # put the calendar back for the other tests
+            block = conn.execute("SELECT id FROM calendar_blocks ORDER BY rowid DESC LIMIT 1").fetchone()[0]
+        self.assertTrue(json.loads(self.post("/api/calendar/remove", {"id": block})[1])["ok"])
+
     # -- unsafe draft ----------------------------------------------------------
     def test_unsafe_draft_blocked(self):
         imp = self.import_inquiry("unsafe-1")
