@@ -134,6 +134,8 @@ h4.more{font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercas
 .tl{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .tl li{display:grid;grid-template-columns:120px 1fr;gap:10px}.tl time{color:var(--mute);font-size:12px}
 .field{display:grid;gap:4px;font-size:13px;font-weight:600}
+.apgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:10px 0}
+@media (max-width:900px){.apgrid{grid-template-columns:minmax(0,1fr)}}
 .field input,.field select{border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--card);min-width:0}
 .fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
 /* calendar */
@@ -671,7 +673,17 @@ function toolsView(){
 function crumb(t){return '<div class="crumb"><button class="link" data-act="tab" data-tab="tools">Studio tools</button> › '+t+'</div>'}
 function ratesView(){
  var rows=(ST.price_list||[]).map(function(r){return '<tr><th scope="row" style="color:var(--ink)">'+esc(r.name)+'<div class="note" style="font-weight:400">'+esc(r.unit)+'</div></th><td class="n"><input class="qty" id="rh-'+r.id+'" type="number" min="0" step="0.5" value="'+r.hours+'" aria-label="Hours for '+esc(r.name)+'"></td><td class="n"><input class="qty" id="rp-'+r.id+'" type="number" min="0" step="10" value="'+r.price_sgd+'" aria-label="Price for '+esc(r.name)+'"></td></tr>'}).join('');
- return '<div class="main"><div class="head"><div><h1>Production estimates</h1><p class="meta">Your price list. The engine prices standard jobs from it, and custom jobs are built from it.</p></div><button class="btn sm" data-act="tab" data-tab="tools">Back to Studio tools</button></div><section class="panel tw"><table><thead><tr><th>Kind of work</th><th class="n">Hours</th><th class="n">Price (S$)</th></tr></thead><tbody>'+rows+'</tbody></table><div class="row"><button class="btn pri" data-act="saveRates">Save price list</button></div><p class="note" style="margin-top:8px">Changes apply to new estimates. Proposals you have already sent keep their price.</p></section></div>'}
+ return '<div class="main"><div class="head"><div><h1>Production estimates</h1><p class="meta">Your price list. The engine prices standard jobs from it, and custom jobs are built from it.</p></div><button class="btn sm" data-act="tab" data-tab="tools">Back to Studio tools</button></div><section class="panel tw"><table><thead><tr><th>Kind of work</th><th class="n">Hours</th><th class="n">Price (S$)</th></tr></thead><tbody>'+rows+'</tbody></table>'+autoPricing()+'<div class="row"><button class="btn pri" data-act="saveRates">Save price list</button></div><p class="note" style="margin-top:8px">Changes apply to new estimates. Proposals you have already sent keep their price.</p></section></div>'}
+/* Automatic pricing: saving this page also builds the engine's promo template. */
+function autoPricing(){
+ var t=ST.promo_template||{},s=t.small_steps||{},has=t.cost_per_hour_sgd!=null;
+ var status=t.registered?'<span class="chip ok">On, since '+esc(lab(t.registered.basis_date))+'</span>':'<span class="chip warn">Off until you add your cost per hour</span>';
+ return '<h3 style="margin-top:18px"><span>Automatic pricing</span>'+status+'</h3>'
+ +'<p class="note">Standard promo videos and social reels (up to one shoot day and one location, no interviews, standard editing, basic or no titles) are priced automatically from this page. Anything else still needs your own estimate.</p>'
+ +'<div class="apgrid"><label class="field">Your cost per hour (S$)<input id="ap-cost" type="number" min="0" step="1" value="'+(has?t.cost_per_hour_sgd:'')+'" placeholder="Your cost per hour"></label>'
+ +'<label class="field">Hours for each shorter cut-down<input id="ap-cut" type="number" min="0" step="0.25" value="'+(t.cutdown_hours==null?1:t.cutdown_hours)+'"></label>'
+ +'<label class="field">Buffer (%)<input id="ap-buf" type="number" min="0" max="100" step="1" value="'+(t.buffer_pct==null?15:t.buffer_pct)+'"></label></div>'
+ +'<p class="note">Also used: S$'+(t.charge_per_hour_sgd||80)+' an hour charge; shoot, main edit, captions and revision-round hours from the table above; preparation '+String(s.prep||0.5)+' h, ingest '+String(s.ingest||0.5)+' h, footage review '+String(s.review_selected||0.5)+' h (or 3 minutes per minute of raw footage), delivery '+String(s.delivery||0.25)+' h.'+(has?'':' <b>Add your cost per hour and save to turn automatic pricing on.</b>')+'</p>'}
 function portfolioView(){
  var f=S.pf||'all',items=(ST.portfolio||[]).map(function(i,k){var fmt=FMTCHIP[i.format]||(i.format?String(i.format).replace(/_/g,' '):'Other');var size=(i.deliverables?i.deliverables+' video'+(i.deliverables===1?'':'s'):'')+(i.shoot_days!=null?(i.shoot_days?', '+i.shoot_days+' shoot day'+(i.shoot_days===1?'':'s'):', edit only'):'');return {t:i.title,fmt:fmt,b:'b'+((k%3)+1),size:size,vis:i.shared?'Buyers can see':'Private',id:i.id,shared:i.shared}});
  var fmts=[];items.forEach(function(i){if(fmts.indexOf(i.fmt)<0)fmts.push(i.fmt)});
@@ -791,7 +803,9 @@ document.addEventListener('click',async function(e){
   case 'addWork':location.href='/portfolio';break;
   case 'play':window.open('/portfolio/media/'+encodeURIComponent(b.dataset.id),'_blank','noopener');break;
   case 'saveRates':v=(ST.price_list||[]).map(function(x){return {id:x.id,hours:parseFloat(document.getElementById('rh-'+x.id).value),price_sgd:parseFloat(document.getElementById('rp-'+x.id).value)}});
-   r=await api('/api/price-list',{items:v});await refreshState(false);say(r.ok?'Price list saved. It applies to new estimates.':(r.message||'The price list was not saved.'));break;
+   var apc=document.getElementById('ap-cost').value.trim();
+   r=await api('/api/price-list',{items:v,template:{cost_per_hour_sgd:apc===''?null:parseFloat(apc),cutdown_hours:parseFloat(document.getElementById('ap-cut').value),buffer_pct:parseFloat(document.getElementById('ap-buf').value)}});await refreshState(false);
+   say(r.ok?'Price list saved. It applies to new estimates.'+(r.template&&r.template.registered?' Automatic pricing is on.':' Add your cost per hour to turn automatic pricing on.'):(r.message||'The price list was not saved.'));break;
   case 'rerun':S.busy=true;render();r=await api('/api/reevaluate',{deal_id:d.id,offer_id:d.raw.offers[d.raw.offers.length-1].offer_id});S.busy=false;delete S.check[d.id];await refreshState(false);say(r.ok?'Estimate re-run against your current calendar.':(r.message||'The estimate could not be re-run.'));break;
   case 'seecal':S.hi={weeks:((d.v&&d.v.capacity_changes)||[]).filter(function(x){return Math.abs(x.before-x.after)>0.05&&monday(x.week)<=d.ask.by}).map(function(x){return x.week}),deal:d.id};S.win=0;go('calendar');break;
   case 'runEst':

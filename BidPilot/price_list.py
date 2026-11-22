@@ -58,6 +58,80 @@ def save(conn, data):
     return items(conn)
 
 
+# -- automatic pricing (the engine's promo template) ------------------------
+# Saving this page also rebuilds the dated promo template the engine needs to
+# price standard promo jobs on its own. Hours come from the price list; the
+# small steps use fixed studio defaults; cost per hour, cut-down hours and the
+# buffer are set on the page. Nothing is built until a cost per hour is given.
+CHARGE_PER_HOUR_SGD = 80
+SMALL_STEPS = {"prep": 0.5, "ingest": 0.5, "review_selected": 0.5,
+               "review_per_footage_minute": 0.05, "delivery": 0.25}
+SETTINGS_SQL = ("CREATE TABLE IF NOT EXISTS promo_template_settings (id INTEGER PRIMARY KEY CHECK (id=1),"
+                " cost_per_hour_sgd REAL, cutdown_hours REAL NOT NULL, buffer_pct REAL NOT NULL, updated_at REAL)")
+
+
+def template_settings(conn):
+    try:
+        row = conn.execute("SELECT * FROM promo_template_settings WHERE id=1").fetchone()
+    except Exception:          # nothing saved yet
+        row = None
+    out = {"cost_per_hour_sgd": row["cost_per_hour_sgd"] if row else None,
+           "cutdown_hours": row["cutdown_hours"] if row else 1.0,
+           "buffer_pct": row["buffer_pct"] if row else 15.0,
+           "charge_per_hour_sgd": CHARGE_PER_HOUR_SGD, "small_steps": dict(SMALL_STEPS)}
+    try:
+        latest = conn.execute("SELECT version, template_json FROM promo_templates ORDER BY rowid DESC LIMIT 1").fetchone()
+    except Exception:
+        latest = None
+    out["registered"] = ({"version": latest["version"], "basis_date": json.loads(latest["template_json"])["basis_date"]}
+                         if latest else None)
+    return out
+
+
+def _template_args(conn, settings, today):
+    lines = {r["id"]: r for r in items(conn)}
+    hours = {"shoot": lines["shoot"]["hours"], "original_edit": lines["edit"]["hours"],
+             "captions": lines["cap"]["hours"], "review_round": lines["rev"]["hours"],
+             "cutdown": settings["cutdown_hours"], **SMALL_STEPS}
+    rate = {"cost_rate_cents": int(round(settings["cost_per_hour_sgd"] * 100)),
+            "sell_rate_cents": CHARGE_PER_HOUR_SGD * 100}
+    body = {"hours": hours, "rate": rate, "buffer_pct": settings["buffer_pct"],
+            "supported": {"editing_level": "standard"}}
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:10]
+    return {**body, "version": "studio-template-" + digest, "basis_date": today,
+            "note": "Built from the founder's Production estimates page"}
+
+
+def save_template_settings(conn, data):
+    """Owner-only (the dashboard's Save). Stores the three settings and, once a
+    cost per hour is given, registers the matching dated promo template."""
+    import estimating
+    from datetime import date
+    cost = data.get("cost_per_hour_sgd")
+    cost = None if cost in (None, "") else _number(cost, "cost per hour", 1000)
+    cut = _number(data.get("cutdown_hours", 1), "number of cut-down hours", 50)
+    buf = _number(data.get("buffer_pct", 15), "buffer", 100)
+    if cut <= 0:
+        raise ValueError("Enter cut-down hours above 0.")
+    conn.execute(SETTINGS_SQL)
+    conn.execute("INSERT INTO promo_template_settings VALUES (1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
+                 " cost_per_hour_sgd=excluded.cost_per_hour_sgd, cutdown_hours=excluded.cutdown_hours,"
+                 " buffer_pct=excluded.buffer_pct, updated_at=excluded.updated_at", (cost, cut, buf, db.now()))
+    settings = template_settings(conn)
+    registered = None
+    if cost is not None:
+        args = _template_args(conn, settings, date.today().isoformat())
+        try:
+            exists = conn.execute("SELECT 1 FROM promo_templates WHERE version=?", (args["version"],)).fetchone()
+        except Exception:
+            exists = None
+        if not exists:
+            estimating.save_promo_template(conn, args)
+        registered = args["version"]
+    conn.commit()
+    return {**template_settings(conn), "just_registered": registered}
+
+
 def totals(conn, quantities):
     lines = {r["id"]: r for r in items(conn)}
     hours = price = 0.0

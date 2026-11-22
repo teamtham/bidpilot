@@ -304,6 +304,41 @@ class HttpTests(unittest.TestCase):
         self.assertFalse(json.loads(text)["rerun"])
         self.assertTrue(json.loads(self.post("/api/calendar/remove", {"id": block})[1])["ok"])
 
+    def test_production_estimates_save_builds_the_promo_template(self):
+        """The price-list page is the one place: saving it with a cost per hour
+        registers the dated promo template; without one, nothing is built."""
+        _, text = self.get("/api/state")
+        st = json.loads(text)
+        items = [{"id": r["id"], "hours": r["hours"], "price_sgd": r["price_sgd"]} for r in st["price_list"]]
+        self.assertIsNone(st["promo_template"]["cost_per_hour_sgd"])
+        _, text = self.post("/api/price-list", {"items": items, "template": {"cost_per_hour_sgd": None,
+                                                                          "cutdown_hours": 1, "buffer_pct": 15}})
+        res = json.loads(text)
+        self.assertTrue(res["ok"])
+        self.assertIsNone(res["template"]["registered"])
+        _, text = self.post("/api/price-list", {"items": items, "template": {"cost_per_hour_sgd": 45,
+                                                                          "cutdown_hours": 1, "buffer_pct": 15}})
+        res = json.loads(text)["template"]
+        self.assertTrue(res["just_registered"].startswith("studio-template-"))
+        with self.db() as conn:
+            row = conn.execute("SELECT template_json FROM promo_templates WHERE version=?",
+                               (res["just_registered"],)).fetchone()
+            tpl = json.loads(row[0])
+            rate = json.loads(conn.execute("SELECT rates_json FROM estimate_rate_versions WHERE version=?",
+                                           (res["just_registered"],)).fetchone()[0])[0]
+        self.assertEqual(tpl["hours"]["shoot"], 6)
+        self.assertEqual(tpl["hours"]["original_edit"], 4)
+        self.assertEqual(tpl["hours"]["cutdown"], 1)
+        self.assertEqual(tpl["buffer_pct"], 15)
+        self.assertEqual((rate["cost_rate_cents"], rate["sell_rate_cents"]), (4500, 8000))
+        # saving the same values again does not register a duplicate
+        _, text = self.post("/api/price-list", {"items": items, "template": {"cost_per_hour_sgd": 45,
+                                                                          "cutdown_hours": 1, "buffer_pct": 15}})
+        self.assertTrue(json.loads(text)["ok"])
+        _, text = self.post("/api/price-list", {"items": items, "template": {"cost_per_hour_sgd": 45,
+                                                                          "cutdown_hours": 0, "buffer_pct": 15}})
+        self.assertEqual(json.loads(text)["message"], "Enter cut-down hours above 0.")
+
     # -- unsafe draft ----------------------------------------------------------
     def test_unsafe_draft_blocked(self):
         imp = self.import_inquiry("unsafe-1")
