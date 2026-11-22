@@ -387,10 +387,12 @@ def client_change(conn, deal_id, body, request_id, terms=None, expected_version_
 
     prior = uj(conn.execute("SELECT evidence_json FROM offers WHERE id=?",
                             (version["offer_id"],)).fetchone()["evidence_json"])
-    if "detailed_spec" in prior or "detailed_alternatives" in prior:
-        _step(conn, deal_id, "client_change", "queued", "Re-scope task quantities, rates and resources for this revision.")
-        conn.commit()
-        return None
+    # A by-hand (price list or task-level) estimate was for the old terms. The
+    # change becomes a normal new round: the engine prices it from past jobs,
+    # or, if it can't (e.g. motion graphics), asks Alex for a fresh estimate.
+    # Either way the request shows on the dashboard instead of waiting unseen.
+    prior.pop("detailed_spec", None)
+    prior.pop("detailed_alternatives", None)
     parsed = parse_change_body(body, prior)
     for key in ("count", "captions", "deadline", "budget"):
         value = (terms or {}).get(key)
