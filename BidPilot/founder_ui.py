@@ -433,7 +433,7 @@ function draftPanel(d){
  +'<div id="checkpanel">'+checks(d)+'</div></section>'}
 function coll(key,title,body){var o=S.open[key];return '<div class="col"><button data-act="toggle" data-key="'+key+'" aria-expanded="'+(!!o)+'"><span>'+title+'</span><span>'+(o?'−':'+')+'</span></button>'+(o?'<div class="body">'+body+'</div>':'')+'</div>'}
 function briefHtml(d){return '<table><tbody>'+d.brief.map(function(r){return '<tr><th scope="row">'+r[0]+'</th><td>'+(r[1]==null?'<span class="miss">Missing</span>':esc(r[1]))+'</td></tr>'}).join('')+'</tbody></table>'}
-var STEP={claimed:'Brief received',resume:'Brief received again',intake:'Intake saved',scoping:'Similar past jobs picked',engine:'Estimate made',engine_evaluate:'Estimate made',reevaluate:'Estimate re-run',draft:'Draft written',edit_draft:'You edited the draft',outbound:'Draft checked',outbound_check:'Draft checked',review:'Waiting for your review',approve:'Proposal sent',reject:'You rejected this',client_change:'Client asked for a change',client_accept:'Client picked an option',capacity_revalidate:'Calendar re-checked',rotate_token:'Client link reissued',confirm_booking:'You confirmed the booking',close_deal:'Deal closed',needs_information:'Checked what was missing',stale_version:'Change was for an older version',error:'Something went wrong'};
+var STEP={claimed:'Brief received',resume:'Brief received again',intake:'Intake saved',scoping:'Similar past jobs picked',engine:'Estimate made',engine_evaluate:'Estimate made',reevaluate:'Estimate re-run',draft:'Draft written',edit_draft:'You edited the draft',outbound:'Draft checked',outbound_check:'Draft checked',review:'Waiting for your review',approve:'Proposal sent',reject:'You rejected this',client_change:'Client asked for a change',client_accept:'Client picked an option',capacity_revalidate:'Calendar re-checked',rotate_token:'Client link reissued',confirm_booking:'You confirmed the booking',close_deal:'Deal closed',needs_information:'Checked what was missing',stale_version:'Change was for an older version',error:'Something went wrong',chat:'Buyer chat answered',reference:'Reference video watched',compose:'Proposal page composed'};
 function stepLine(s){
  var t=STEP[s.step_key]||String(s.step_key).replace(/_/g,' '),n='';
  if(s.step_key==='approve'&&s.status!=='ok'){t='Approve refused';n='The check or the calendar stopped it.'}
@@ -442,6 +442,7 @@ function stepLine(s){
  else if(s.step_key==='needs_information'){var j=null;try{j=JSON.parse(s.private_note)}catch(e){}if(j&&j.question_sent){t='Question sent';n=j.question}else if(j&&j.missing_fields){n='Missing: '+j.missing_fields.map(function(f){return FIELD[f]||f}).join(', ')+'.'}}
  else if(s.step_key==='engine_evaluate'&&s.status==='running'){t='Estimate started'}
  else if(s.step_key==='engine_evaluate'){var m=/verdict=(\w+)/.exec(s.private_note||'');if(m)n={accept:'Fits the calendar.',counter:'Doesn’t fit as asked, so options were made.',clarify:'Needs your estimate.',decline:'Doesn’t fit at all.'}[m[1]]||''}
+ if(s.trigger==='api')n=(n?n+' ':'')+'QwenWork API run.'
  return [when(s.finished_at||s.started_at),t,n]}
 function histHtml(d){
  var steps=d.raw.steps.slice().reverse(),show=S.more[d.id]?steps:steps.slice(0,8);

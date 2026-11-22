@@ -7,6 +7,9 @@ import tempfile
 import threading
 import time
 import unittest
+from email.message import Message
+from io import BytesIO
+from unittest.mock import patch
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -53,6 +56,110 @@ class Fake(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.server.deleted += 1
         self.answer({})
+
+
+class DiscoveryFallbackTests(unittest.TestCase):
+    def test_default_business_routes_follow_pdf(self):
+        routes = [('/v1/sessions', 'POST', {'initial_prompt': {'text': 'test'}}),
+                  ('/v1/sessions/test-session', 'GET', None),
+                  ('/v1/sessions/test-session/events?cursor=0', 'GET', None),
+                  ('/v1/sessions/test-session/turns/first', 'GET', None),
+                  ('/v1/sessions/test-session', 'DELETE', None)]
+        for platform in ('darwin', 'linux'):
+            with (self.subTest(platform=platform),
+                  patch.object(qw.sys, 'platform', platform),
+                  patch.object(qw.Client, 'access_token', return_value='test-access'),
+                  patch.object(qw.Client, '_http', return_value={}) as http,
+                  patch.object(qw.subprocess, 'run', return_value=
+                               qw.subprocess.CompletedProcess([], 0, b'{}\n200')) as curl):
+                client = qw.Client()
+                self.assertEqual(client.oauth_base, 'https://qwenwork.ai')
+                self.assertEqual(client.api_base, 'https://api.qwenwork.ai')
+                for path, method, data in routes:
+                    self.assertEqual(client.api(path, method, data), {})
+                    url = 'https://api.qwenwork.ai' + path
+                    if platform == 'darwin':
+                        args = curl.call_args.args[0]
+                        self.assertEqual(args[args.index('--url') + 1], url)
+                        self.assertEqual(args[args.index('--request') + 1], method)
+                        http.assert_not_called()
+                    else:
+                        http.assert_called_with(url, method, data, 'test-access')
+                        curl.assert_not_called()
+
+    @staticmethod
+    def response(body, content_type='application/json'):
+        response = BytesIO(body)
+        response.status = 200
+        response.headers = Message()
+        response.headers['Content-Type'] = content_type
+        return response
+
+    def test_html_discovery_then_code_exchange(self):
+        discovery = self.response(b'<!doctypehtml><title></title>', 'text/html; charset=utf-8')
+        reply = qw.subprocess.CompletedProcess([], 0, b'{"access_token":"example","token_type":"Bearer","expires_in":3600}\n200')
+        with (tempfile.TemporaryDirectory() as tmp, patch.object(qw.sys, 'platform', 'darwin'),
+              patch.object(qw, 'urlopen', return_value=discovery) as http,
+              patch.object(qw.subprocess, 'run', return_value=reply) as curl):
+            client = qw.Client('test-client', token_path=Path(tmp) / 'tokens.json')
+            login = urlsplit(client.start_login())
+            self.assertEqual((login.scheme, login.netloc, login.path), ('https', 'qwenwork.ai', '/oauth2/auth'))
+            query = parse_qs(login.query)
+            self.assertEqual(query['code_challenge_method'], ['S256'])
+            client.finish_login({'state': query['state'], 'code': ['example-code']})
+            http.assert_called_once()
+            curl.assert_called_once()
+            args = curl.call_args.args[0]
+            self.assertEqual(args[0], '/usr/bin/curl')
+            self.assertEqual(args[-1], 'https://qwenwork.ai/auth/oauth/token')
+            self.assertNotIn('example-code', ' '.join(args))
+            form = parse_qs(curl.call_args.kwargs['input'].decode())
+            self.assertEqual(form['code'], ['example-code'])
+            verifier = form['code_verifier'][0]
+            challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+            self.assertEqual(query['code_challenge'], [challenge])
+            self.assertTrue(client.connected())
+
+    def test_other_issuer_and_invalid_discovery_remain_errors(self):
+        cases = [
+            ('https://other.example', b'<html>', 'text/html', 'unexpected_html_response'),
+            (qw.OAUTH_BASE, b'broken', 'application/json', 'invalid_json_response'),
+            (qw.OAUTH_BASE, b'{"authorization_endpoint":"https://other.example/login"}',
+             'application/json', 'invalid_discovery_endpoint'),
+        ]
+        for issuer, body, content_type, reason in cases:
+            with self.subTest(reason=reason), patch.object(qw, 'urlopen', return_value=self.response(body, content_type)):
+                with self.assertRaisesRegex(qw.APIError, reason):
+                    qw.Client('test-client', oauth_base=issuer).start_login()
+
+    def test_html_token_response_does_not_connect(self):
+        with (tempfile.TemporaryDirectory() as tmp, patch.object(qw.sys, 'platform', 'darwin'),
+              patch.object(qw, 'urlopen', return_value=self.response(b'<html>', 'text/html')),
+              patch.object(qw.subprocess, 'run', return_value=qw.subprocess.CompletedProcess([], 0, b'<html>\n200')) as curl):
+            client = qw.Client('test-client', token_path=Path(tmp) / 'tokens.json')
+            state = parse_qs(urlsplit(client.start_login()).query)['state']
+            with self.assertRaisesRegex(qw.APIError, 'token_endpoint_returned_html'):
+                client.finish_login({'state': state, 'code': ['example-code']})
+            curl.assert_called_once()
+            self.assertFalse(client.connected())
+
+    def test_curl_refresh_and_oauth_error(self):
+        refreshed = b'{"access_token":"new","refresh_token":"rotated","token_type":"Bearer","expires_in":3600}\n200'
+        rejected = b'{"error":"invalid_grant","error_description":"private details"}\n400'
+        replies = [qw.subprocess.CompletedProcess([], 0, body) for body in (refreshed, rejected)]
+        with (tempfile.TemporaryDirectory() as tmp, patch.object(qw.sys, 'platform', 'darwin'),
+              patch.object(qw, 'urlopen', return_value=self.response(b'<html>', 'text/html')),
+              patch.object(qw.subprocess, 'run', side_effect=replies) as curl):
+            client = qw.Client('test-client', token_path=Path(tmp) / 'tokens.json')
+            client._save({'access_token':'expired', 'refresh_token':'old-refresh', 'expires_at':0})
+            self.assertEqual(client.access_token(), 'new')
+            self.assertEqual(client._load()['refresh_token'], 'rotated')
+            self.assertEqual(parse_qs(curl.call_args.kwargs['input'].decode())['refresh_token'], ['old-refresh'])
+            self.assertNotIn('old-refresh', ' '.join(curl.call_args.args[0]))
+            state = parse_qs(urlsplit(client.start_login()).query)['state']
+            with self.assertRaisesRegex(qw.APIError, '^http_400_invalid_grant$'):
+                client.finish_login({'state': state, 'code':['bad-code']})
+            self.assertEqual(curl.call_count, 2)
 
 
 class OpenAPITests(unittest.TestCase):
