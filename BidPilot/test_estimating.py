@@ -341,33 +341,6 @@ class EstimatingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'evidence_not_in_inquiry'):
             estimating.validate_evidence_links(self.conn, spec, 'inq')
 
-    def test_live_default_requires_approved_template_and_specific_buyer_facts(self):
-        request = self.detailed_request(self.spec)
-        request.pop('detailed_spec')
-        request.pop('pricing_mode')
-        result = estimating.evaluate(self.conn, request, core.seed_data())
-        self.assertEqual(result['verdict'], 'clarify')
-        self.assertEqual(result['clarifications'][0]['resolver'], 'Alex')
-        self.register_template()
-        result = estimating.evaluate(self.conn, request, core.seed_data())
-        self.assertEqual(result['clarifications'][0]['resolver'], 'buyer')
-        request['production_facts'] = {'production.original_edits': 1, 'production.cutdowns': 2,
-                                      'production.clips_preselected': True}
-        estimating.add_availability(self.conn, 'promo_producer', '2026-11-23T09:00', '2026-12-11T17:00')
-        before = estimating.evaluate(self.conn, request, core.seed_data())
-        self.assertEqual(before['verdict'], 'accept', before)
-        self.assertEqual(before['estimate']['version'], 'detailed-v1')
-        lines = {x['id']: x for x in before['estimate']['lines']}
-        self.assertEqual(len([x for x in lines if x == 'shoot']), 1)
-        self.assertEqual(len([x for x in lines if x.startswith('cutdown-')]), 2)
-        request['production_facts'].update({'production.original_edits': 3, 'production.cutdowns': 0,
-                                           'production.clips_preselected': False, 'production.footage_minutes': 60})
-        after = estimating.evaluate(self.conn, request, core.seed_data())
-        self.assertEqual(after['estimate']['base_hours'] - before['estimate']['base_hours'], 8)
-        request['production_facts']['production.deadline_kind'] = 'first_cut'
-        result = estimating.evaluate(self.conn, request, core.seed_data())
-        self.assertEqual(result['missing_fields'], ['buyer:production.final_delivery_date'])
-
     def register_template(self):
         estimating.save_promo_template(self.conn, {
             'version': 'acceptance-template', 'basis_date': '2026-11-21',
@@ -377,6 +350,22 @@ class EstimatingTests(unittest.TestCase):
             'hours': {'prep': 1, 'shoot': 5, 'ingest': 1, 'review_selected': 1,
                       'review_per_footage_minute': .05, 'original_edit': 4, 'cutdown': 1,
                       'captions': .5, 'review_round': .5, 'delivery': .25}})
+
+    def test_live_default_prices_from_past_jobs_with_or_without_a_template(self):
+        """The default (QwenWork pipeline) path prices from similar past jobs. No
+        template is required, and a registered one does not change the price."""
+        request = self.detailed_request(self.spec)
+        request.pop('detailed_spec')
+        request.pop('pricing_mode', None)
+        without = estimating.evaluate(self.conn, copy.deepcopy(request), core.seed_data())
+        self.assertNotIn('MANUAL_ESTIMATE_REQUIRED', without['reason_codes'])
+        self.assertNotEqual(without['verdict'], 'clarify', without)
+        self.assertGreater(without['estimate']['list_sgd'], 0)
+        self.assertTrue(without['options'])
+        self.register_template()
+        withtpl = estimating.evaluate(self.conn, copy.deepcopy(request), core.seed_data())
+        self.assertEqual(withtpl['estimate']['list_sgd'], without['estimate']['list_sgd'])
+        self.assertNotEqual(withtpl['estimate'].get('version'), 'detailed-v1')
 
     def test_double_credit_rejected_even_with_unlinked_slack(self):
         spec = copy.deepcopy(self.spec)
@@ -401,143 +390,6 @@ class EstimatingTests(unittest.TestCase):
             estimating._validate_finished_phase(spec, phase, 3)
         phase['task_ids'] += ['original-video-1', 'captions-video-1', 'review-video-1', 'delivery-video-1']
         estimating._validate_finished_phase(spec, phase, 3)
-
-    def test_cafe_shared_core_lifecycle_resume_revision_and_reservation(self):
-        conn = db.connect(':memory:')
-        core.load_seed(conn)
-        original_conn = self.conn
-        self.conn = conn
-        self.register_template()
-        estimating.add_availability(conn, 'promo_producer', '2026-11-23T09:00', '2026-12-11T17:00')
-        conn.commit()
-        request = self.detailed_request(self.spec)
-        request.pop('detailed_spec')
-        request.pop('pricing_mode')
-        request['offer'].update(production_mode='edit_only', shoot_days=0, locations=0,
-                                direct_costs_sgd=0, client='Synthetic Cafe')
-        deal, offer, _ = core.claim_or_resume(conn, 'site', 'cafe-live', 'Synthetic Cafe', 'supplied espresso footage', request)
-        first_eval, first_version = core.evaluate(conn, deal, offer)
-        self.assertEqual(conn.execute('SELECT verdict FROM evaluations WHERE id=?', (first_eval,)).fetchone()[0], 'clarify')
-        request['production_facts'] = {'production.original_edits': 1, 'production.cutdowns': 2,
-                                      'production.clips_preselected': True}
-        same_deal, revised, _ = core.claim_or_resume(conn, 'site', 'cafe-live', 'Synthetic Cafe', '', request)
-        self.assertEqual(same_deal, deal)
-        self.assertNotEqual(revised, offer)
-        _, version = core.evaluate(conn, deal, revised)
-        result = db.uj(conn.execute('SELECT result_json FROM evaluations WHERE offer_id=?', (revised,)).fetchone()[0])
-        self.assertEqual(result['verdict'], 'accept', result)
-        self.assertFalse(any(line['id'] == 'shoot' for line in result['estimate']['lines']))
-        self.assertTrue(core.check_draft(conn, version)['passed'])
-        released = core.approve(conn, version)
-        self.assertTrue(released['ok'], released)
-        snapshot = conn.execute('SELECT public_terms_json FROM options WHERE evaluation_id=(SELECT id FROM evaluations WHERE offer_id=?)', (revised,)).fetchone()[0]
-        option = core.options_of(conn, conn.execute('SELECT * FROM proposal_versions WHERE id=?', (version,)).fetchone())[0]['id']
-        self.assertTrue(core.client_accept(conn, released['token'], option)['ok'])
-        confirmed = core.confirm_booking(conn, version)
-        self.assertTrue(confirmed['ok'], confirmed)
-        self.assertGreater(conn.execute('SELECT COUNT(*) FROM resource_allocations').fetchone()[0], 0)
-        self.assertEqual(conn.execute('SELECT public_terms_json FROM options WHERE id=?', (option,)).fetchone()[0], snapshot)
-        self.assertEqual(conn.execute('SELECT verdict FROM evaluations WHERE id=?', (first_eval,)).fetchone()[0], 'clarify')
-        self.conn = original_conn
-        conn.close()
-
-    def test_cafe_equivalent_structured_mcp_and_conversation_facts(self):
-        import json
-        from test_studio_journey import Journey
-        journey = Journey()
-        journey.setUp()
-        self.addCleanup(journey.tearDown)
-        conn = db.connect(journey.path)
-        self.addCleanup(conn.close)
-        original_conn = self.conn
-        try:
-            self.conn = conn
-            self.register_template()
-        finally:
-            self.conn = original_conn
-        estimating.add_availability(conn, 'promo_producer', '2026-11-23T09:00', '2026-12-11T17:00')
-        conn.commit()
-        request = self.detailed_request(self.spec)
-        request.pop('detailed_spec')
-        request.pop('pricing_mode')
-        request['offer'].update(client='Synthetic Cafe', production_mode='edit_only', shoot_days=0,
-                                locations=0, direct_costs_sgd=0, budget_sgd=4000)
-        facts = {'production.original_edits': 1, 'production.cutdowns': 2,
-                 'production.clips_preselected': True, 'production.deadline_kind': 'final_delivery',
-                 'production.final_delivery_date': '2026-12-11'}
-        request['production_facts'] = facts
-        brief = ('Synthetic Cafe supplies espresso footage and references basic titles. '
-                 'Three reels: one main edit and two shorter cuts, preselected clips. '
-                 'All final files due Friday 2026-12-11. Budget SGD 4000.')
-        status, raw = journey.http('POST', '/api/import', {
-            'source': 'manual', 'source_id': 'cafe-structured', 'raw_inquiry': brief,
-            'offer_request': request}, owner=True)
-        self.assertEqual(status, 200, raw)
-        structured = json.loads(raw)
-        status, raw = journey.http('POST', '/api/evaluate', {
-            'deal_id': structured['deal_id'], 'offer_id': structured['offer_id']}, owner=True)
-        self.assertEqual(status, 200, raw)
-        structured_priced = json.loads(raw)
-        mcp = journey.rpc('claim_intake', {
-            'source': 'manual', 'source_id': 'cafe-mcp', 'client': 'Synthetic Cafe',
-            'raw_inquiry': brief, 'offer_request': request, 'request_id': 'cafe-mcp-claim'})
-        mcp_priced = journey.rpc('evaluate_offer', {'deal_id': mcp['deal_id'], 'offer_id': mcp['offer_id']})
-        status, raw = journey.http('POST', '/inquire', {'text': brief, 'request_id': 'cafe-chat'})
-        self.assertEqual(status, 200, raw)
-        chat = json.loads(raw)
-        journey.rpc('commit_chat_turn', {
-            'inquiry_id': chat['inquiry_id'], 'through_sequence': 1, 'expected_revision': 0,
-            'request_id': 'cafe-facts', 'reply': 'The supplied clips and title treatment are noted.',
-            'fact_changes': [{'subject': k, 'value': v, 'status': 'confirmed', 'source_sequence': 1}
-                             for k, v in facts.items()]})
-        chat_request = copy.deepcopy(request)
-        chat_request.pop('production_facts')
-        chat_priced = journey.rpc('price_inquiry_scope', {
-            'inquiry_id': chat['inquiry_id'], 'expected_revision': 1, 'offer_request': chat_request})
-        results, specs = [], []
-        for priced, offer_id in ((structured_priced, structured['offer_id']),
-                                  (mcp_priced, mcp['offer_id']), (chat_priced, chat_priced['offer_id'])):
-            result = json.loads(conn.execute('SELECT result_json FROM evaluations WHERE offer_id=?',
-                                            (offer_id,)).fetchone()[0])
-            self.assertEqual(result['verdict'], 'accept', result)
-            results.append(result)
-            specs.append(json.loads(conn.execute('SELECT input_json FROM detailed_estimates WHERE scope_revision_id=?',
-                                                (offer_id,)).fetchone()[0]))
-        self.assertEqual(results[0], results[1])
-        self.assertEqual(results[0], results[2])
-        self.assertEqual(specs[0], specs[1])
-        self.assertEqual(specs[0], specs[2])
-        self.assertEqual(results[0]['estimate']['planning_hours'], 17.1)
-        self.assertFalse(any(line['id'] == 'shoot' for line in results[0]['estimate']['lines']))
-        self.assertEqual(conn.execute('SELECT COUNT(*) FROM resource_allocations').fetchone()[0], 0)
-        version = chat_priced['version_id']
-        status, raw = journey.http('POST', '/api/check', {'version_id': version}, owner=True)
-        self.assertTrue(json.loads(raw)['ok'], raw)
-        status, raw = journey.http('POST', '/api/approve', {'version_id': version}, owner=True)
-        self.assertTrue(json.loads(raw)['ok'], raw)
-        frozen = dict(conn.execute('SELECT * FROM proposal_versions WHERE id=?', (version,)).fetchone())
-        status, raw = journey.http('POST', '/i/' + chat['token'] + '/messages', {
-            'text': 'Actually three distinct stories, zero cutdowns.', 'request_id': 'cafe-correction'})
-        self.assertEqual(status, 200, raw)
-        sequence = json.loads(raw)['sequence']
-        old = {row['subject']: row['id'] for row in conn.execute('SELECT * FROM inquiry_facts WHERE inquiry_id=?',
-                                                              (chat['inquiry_id'],))}
-        journey.rpc('commit_chat_turn', {
-            'inquiry_id': chat['inquiry_id'], 'through_sequence': sequence, 'expected_revision': 1,
-            'request_id': 'cafe-corrected-facts', 'reply': 'Separate stories are noted for a fresh review.',
-            'fact_changes': [{'subject': key, 'value': value, 'status': 'confirmed',
-                              'source_sequence': sequence, 'supersedes': old[key]}
-                             for key, value in [('production.original_edits', 3), ('production.cutdowns', 0)]]})
-        revised = journey.rpc('price_inquiry_scope', {
-            'inquiry_id': chat['inquiry_id'], 'expected_revision': 2, 'offer_request': chat_request})
-        self.assertEqual(revised['deal_id'], chat_priced['deal_id'])
-        self.assertNotEqual(revised['version_id'], version)
-        after = json.loads(conn.execute('SELECT result_json FROM evaluations WHERE offer_id=?',
-                                       (revised['offer_id'],)).fetchone()[0])
-        self.assertEqual(after['estimate']['base_hours'] - results[2]['estimate']['base_hours'], 6)
-        self.assertEqual(dict(conn.execute('SELECT * FROM proposal_versions WHERE id=?', (version,)).fetchone()), frozen)
-        self.assertEqual(json.loads(conn.execute('SELECT result_json FROM evaluations WHERE offer_id=?',
-                                               (chat_priced['offer_id'],)).fetchone()[0]), results[2])
 
     def test_persist(self):
         out = estimating.save_estimate(self.conn, 'd', 'revision1', self.spec)

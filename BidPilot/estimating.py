@@ -43,9 +43,8 @@ CREATE TABLE IF NOT EXISTS producer_overrides (
 def studio_fingerprint(conn, request):
     """Fingerprint the selected basis and intersecting resource windows, not IDs."""
     import hashlib
-    if request.get('detailed_spec') is None and (request.get('historical_pricing') is False or
-            request.get('pricing_mode') in ('legacy_replay', 'historical_replay')):
-        return None
+    if request.get('detailed_spec') is None:
+        return None   # past-jobs pricing has no studio-basis fingerprint
     try:
         spec = request.get('detailed_spec') or promo_spec(conn, request)
     except (ValueError, KeyError, TypeError) as exc:
@@ -296,26 +295,9 @@ def evaluate(conn, request, data, history_override=None):
         return _detailed_with_alternatives(conn, request, data)
     if request.get('historical_pricing') is False or request.get('pricing_mode') == 'legacy_replay':
         return core.engine.evaluate(request, data)
-    if request.get('pricing_mode') != 'historical_replay':
-        errors = core.engine.validation_errors(request)
-        if errors:
-            return core.engine.answer('clarify', [k for k, _ in errors],
-                missing=[v for k, v in errors if k == 'MISSING_FIELD'],
-                invalid=[v for k, v in errors if k == 'INVALID_FIELD'])
-        try:
-            spec = promo_spec(conn, request)
-        except (ValueError, KeyError, TypeError) as exc:
-            result = core.engine.answer('clarify', ['MANUAL_ESTIMATE_REQUIRED'], missing=[str(exc)])
-            who, _, field = str(exc).partition(':')
-            clarification = {'resolver': who, 'field': field or str(exc)}
-            if field == 'studio_approved_promo_template':
-                clarification['action'] = ('Alex must register a dated, supported promo template through '
-                    'the owner-only /api/estimating/promo-template route, with effort hours, cost/sell '
-                    'rates, buffer and supported scope. Then resume the same deal; buyer confirmation '
-                    'cannot approve studio assumptions.')
-            result['clarifications'] = [clarification]
-            return result
-        return _detailed_with_alternatives(conn, {**request, 'detailed_spec': spec}, data)
+    # Every other brief (including everything the QwenWork pipeline sends) is
+    # priced from similar past jobs plus completed actuals. A promo template,
+    # if one is registered, is never required and never sets this price.
     # Include completed, eligible actuals in the effort evidence as well as
     # commercial calibration. The engine remains responsible for compatibility.
     history = get_history(conn) if history_override is None else history_override

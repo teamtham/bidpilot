@@ -107,7 +107,7 @@ def prompt(c, row, client=None):
         else:
             comparables = 'No portfolio file is synced: comparable_ids must be empty and similar_work_asset_id omitted.'
         return (instructions + '\n' + bank.decode() + '\nReturn only JSON {"offer_request":{...},"comparable_ids":[...],"similar_work_asset_id":"..."} or {"blocked":"missing information","questions":[]}. '
-                'No tools except Drive download of the portfolio file. Use production pricing with supported dated studio bases only; never historical or legacy replay. '
+                'No tools except Drive download of the portfolio file. The engine prices the brief from similar past jobs; do not set pricing_mode or historical_pricing. '
                 'offer_request must have exactly this shape: {"as_of":"<today YYYY-MM-DD>","offer":{"client":"<buyer business or person name>",'
                 '"format":"product_promo|social_reel|testimonial|event_recap|explainer","production_mode":"edit_only|one_shoot_day|multi_day",'
                 '"shoot_days":int,"locations":int,"interviewees":int,"scripting":"none|light|full","deliverables":int>=1,'
@@ -146,8 +146,12 @@ def apply(c, row, answer):
         if set(answer) - {'offer_request', 'comparable_ids', 'similar_work_asset_id'} or 'offer_request' not in answer:
             raise ValueError('invalid_commercial_answer')
         request = answer['offer_request']
-        if not isinstance(request, dict) or request.get('pricing_mode') in ('legacy_replay', 'historical_replay') or request.get('historical_pricing') is False or request.get('detailed_spec') is not None or request.get('detailed_alternatives'):
+        if not isinstance(request, dict) or request.get('detailed_spec') is not None or request.get('detailed_alternatives'):
             raise ValueError('unsupported_pricing_input')
+        # The engine prices every brief from similar past jobs (with completed
+        # actuals); the agent cannot switch that off or pin another mode.
+        request.pop('pricing_mode', None)
+        request.pop('historical_pricing', None)
         # Pricing facts come from buyer-confirmed local evidence, never model invention.
         gone = {f.get('supersedes') for f in ctx['facts'] if f.get('supersedes')}
         confirmed = {f['subject']: f['value'] for f in ctx['facts']
