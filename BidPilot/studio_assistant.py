@@ -35,6 +35,13 @@ Never invent requirements or quote, approve,
 promise availability or book work. Alex reviews commercial terms. Ask for the buyer's
 business/name and proposal email before wrapping up. When ready, invite the buyer to
 click Send my brief. Never say it has been submitted yourself.
+The buyer can only press Send my brief once brief_missing is empty. While it is not empty,
+work its items into your one or two questions (most important first), save answers under
+the subject given for each item, and ask the buyer to confirm items marked Confirm. When the
+buyer says an item does not apply (for example no filming because they supply all footage,
+so shoot days and locations are not needed), save it with status excluded and value null.
+brief_missing is computed before the latest message, so an item that message answers counts
+as done once you save it. Only invite the buyer to click Send my brief when nothing is left.
 Return a JSON object with reply (plain text) and fact_changes (array). Each change has
 subject (use the bank's keys), value (typed JSON), status (confirmed, proposed or excluded)
 and optional supersedes (the old fact ID for the same subject). Only record facts sourced
@@ -186,6 +193,9 @@ def model_input(c, ctx, media):
     turns = ctx['turns']
     data['turns'] = turns if len(turns) <= 32 else [turns[0], *turns[-31:]]
     data['media_analysis_id'] = media
+    missing = chat.brief_missing(ctx['facts'])
+    data['brief_missing'] = [{'field': m, 'subject': chat.BRIEF_SUBJECTS.get(m.removeprefix('Confirm ').capitalize())}
+                             for m in missing]
     data['reference_contract'] = {
         'production_cues_allowed': media is not None,
         'selected_moment_storage': 'Store buyer preferences from selected moments as grounded fact_changes; the asset and timestamps remain in the transcript.',
@@ -411,7 +421,13 @@ def respond(c, inquiry):
             args['media_analysis_id'] = media
         if answer.get('production_cues'):
             args['production_cues'] = answer['production_cues']
-        if answer.get('proposal_email') is not None:
+        saved_email = (ctx.get('proposal_email') or {}).get('email')
+        repeat = (isinstance(answer.get('proposal_email'), dict) and saved_email and
+                  str(answer['proposal_email'].get('email', '')).strip().casefold() == saved_email.casefold() and
+                  (ctx['proposal_email'].get('confirmed') or not answer['proposal_email'].get('confirmed')))
+        # The model often re-sends the address already on file; that is not a change, so skip it
+        # instead of failing the turn on email_confirmation_not_grounded.
+        if answer.get('proposal_email') is not None and not repeat:
             args['proposal_email'] = answer['proposal_email']
         if decline:
             args['request_id'] = 'decline:' + decline['id']
