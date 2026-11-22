@@ -173,13 +173,14 @@ def _check_buyer_text(c, inquiry, text, allow_scoping_question=False):
         if clean and re.search(r'(?<!\w)'+re.escape(clean)+r'(?!\w)',normalized): raise ValueError('private_information')
     buyer=' '.join(r[0] for r in c.execute("SELECT body FROM inquiry_turns WHERE inquiry_id=? AND sender='buyer'",(inquiry,)))
     buyer=unicodedata.normalize('NFKC',buyer).casefold()
-    allowed=set(re.findall(r'\d[\d,]*(?:\.\d+)?',buyer))
+    # Compare numbers without thousands separators: the buyer's 'S$2,700' allows 2700.
+    allowed={n.replace(',','') for n in re.findall(r'\d[\d,]*(?:\.\d+)?',buyer)}
     for i,word in enumerate(('zero','one','two','three','four','five','six','seven','eight','nine','ten')):
         if re.search(r'(?<!\w)'+word+r'(?!\w)',buyer): allowed.add(str(i))
     # Count words buyers use instead of digits ("a single story" -> 1 edit).
     for word,n in (('single','1'),('once','1'),('twice','2'),('double','2'),('both','2')):
         if re.search(r'(?<!\w)'+word+r'(?!\w)',buyer): allowed.add(n)
-    unknown=[n for n in re.findall(r'\d[\d,]*(?:\.\d+)?',normalized) if n not in allowed]
+    unknown=[n for n in re.findall(r'\d[\d,]*(?:\.\d+)?',normalized) if n.replace(',','') not in allowed]
     if unknown:
         neutral=(allow_scoping_question and '?' in text and not re.search(r'(?:s\$|sgd|\$)\s*\d',normalized)
                  and all(re.search(r'(?<!\w)'+re.escape(n)+r'\s*(?:-|\s)?(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|videos?|reels?|versions?|formats?|ratios?|fps|p|k)\b',normalized) for n in unknown))

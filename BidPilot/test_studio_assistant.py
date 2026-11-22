@@ -56,6 +56,15 @@ class StudioAssistantTests(unittest.TestCase):
                                (chat.uid(), self.i, 0, self.FILLERS[name], '"x"', 'confirmed',
                                 ctx['processed_sequence'], None, 0))
 
+    def test_buyer_amount_with_separator_grounds_plain_number(self):
+        """'S$2,700' from the buyer lets the assistant save or say 2700."""
+        with patch.object(assistant, 'generate', return_value=self.answer()):
+            self.start('Budget is S$2,700 for two reels')
+        chat._check_buyer_text(self.c, self.i, '2700')
+        chat._check_buyer_text(self.c, self.i, 'About S$2,700')
+        with self.assertRaisesRegex(ValueError, 'unverified_number'):
+            chat._check_buyer_text(self.c, self.i, 'S$3,100')
+
     def test_incomplete_brief_cannot_be_submitted(self):
         fact = {'subject':'videos','value':2,'status':'confirmed'}
         with patch.object(assistant, 'generate', return_value=self.answer(facts=[fact])):
@@ -246,7 +255,7 @@ class StudioAssistantTests(unittest.TestCase):
             self.start()
         with self.c:
             self.c.execute('UPDATE gemini_chats SET error=? WHERE inquiry_id=?',
-                           ('Studio Assistant could not reply. Your message is saved. Please retry.', self.i))
+                           ('Sorry, I need another try at that. Your message is saved. Press Retry.', self.i))
         with patch.object(assistant, 'generate') as model:
             code, raw = request(self.base, 'GET', self.url+'/state')
             state = json.loads(raw)

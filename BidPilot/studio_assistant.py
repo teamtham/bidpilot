@@ -339,7 +339,8 @@ def respond(c, inquiry):
             answer = generate(parts + portfolio_parts(c, answer))
             diagnostic(stage, 'returned')
         # Repair contract errors with the model, never by dropping or rewriting facts.
-        for attempt in range(2):
+        # Two repair rounds before the buyer is asked to retry.
+        for attempt in range(3):
             stage = 'validation'
             fact_index = None
             try:
@@ -378,7 +379,7 @@ def respond(c, inquiry):
                     chat._check_buyer_text(c, inquiry, cue['body'] + ' ' + cue['uncertainty'])
                 break
             except ValueError as error:
-                if attempt or str(error) not in ('unverified_number', 'ungrounded_fact', 'invalid_fact_source', 'invalid_fact', 'invalid_reference_cue'):
+                if attempt == 2 or str(error) not in ('unverified_number', 'ungrounded_fact', 'invalid_fact_source', 'invalid_fact', 'invalid_reference_cue'):
                     raise
                 diagnostic(stage, str(error))
                 stage = 'repair'
@@ -451,7 +452,7 @@ def respond(c, inquiry):
             return {'assistant_status': 'busy'}
         error = ('The studio chat is temporarily unavailable. Your message is saved, and the studio'
                  ' will reply as soon as it is back.' if str(exc) == 'model_unavailable' else
-                 'Studio Assistant could not reply. Your message is saved. Please retry.')
+                 'Sorry, I need another try at that. Your message is saved. Press Retry.')
         with c:
             c.execute('UPDATE gemini_chats SET error=? WHERE inquiry_id=? AND lease=?', (error,inquiry,lease))
         diagnostic('status', 'retry')
