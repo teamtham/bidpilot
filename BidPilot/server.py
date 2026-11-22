@@ -32,6 +32,7 @@ import conversation
 import estimating
 import portfolio
 import qwenwork_callback
+import qwenwork_api
 from studio_modules import modules
 import db
 
@@ -234,6 +235,25 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
+            if path == '/qwenwork/callback':
+                try:
+                    self.server.qwenwork_api.finish_login(self.query())
+                    return self.send_html('<h1>QwenWork connected, you can close this tab</h1>')
+                except qwenwork_api.APIError as exc:
+                    return self.send_html('<h1>QwenWork connection failed</h1><p>' + html.escape(str(exc)) + '</p>', 400)
+            if path == '/qwenwork/connect':
+                if not self.owner_ok():
+                    return self.forbidden('owner token required')
+                try:
+                    url = self.server.qwenwork_api.start_login()
+                except qwenwork_api.APIError as exc:
+                    return self.send_json({'ok': False, 'error': str(exc)}, 503)
+                self.send_response(302)
+                self.send_header('Location', url)
+                self.send_header('Cache-Control', 'no-store')
+                self._owner_cookie_header()
+                self.end_headers()
+                return
             if (path == "/estimating" or path.startswith("/api/estimating/")) and not self.owner_ok():
                 return self.forbidden("owner token required")
             if any(module.dispatch_get(self, path) for module in modules()):
@@ -243,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/" or path == "/dashboard":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
-                return self.send_html(founder_page(self.conn))
+                return self.send_html(founder_page(self.conn, getattr(self.server, 'qwenwork_api', None)))
             if path == "/submitted-briefs":
                 if not self.owner_ok():
                     return self.forbidden("owner token required")
@@ -308,6 +328,12 @@ class Handler(BaseHTTPRequestHandler):
             self.conn.close()
 
     def owner_route(self, path, data):
+        if path == '/api/qwenwork/draft':
+            try:
+                result = self.server.qwenwork_api.request_draft(self.conn, data['version_id'])
+            except qwenwork_api.APIError as exc:
+                return self.send_json({'ok': False, 'error': str(exc)}, 400)
+            return self.send_json({'ok': True, **result}, 202)
         if estimating.dispatch_post(self, path, data):
             return
         if path in ('/api/calendar/hours', '/api/calendar/block', '/api/calendar/remove'):
@@ -2748,17 +2774,35 @@ def submitted_briefs_page(conn):
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Submitted briefs</title><style>' + _DESIGN_BASE + '</style></head><body><header><a href="/dashboard">Founder dashboard</a><h1>Submitted briefs</h1></header><main style="max-width:1000px;margin:auto;padding:24px"><p>Private studio review. Receipt storage does not notify Alex or confirm a booking.</p>' + (''.join(cards) or '<p>No submitted briefs yet.</p>') + '</main></body></html>'
 
 
-def founder_page(conn):
+def founder_page(conn, api=None):
     """The founder dashboard (wireframe v5 build, see founder_ui.py)."""
     import founder_ui
     fixtures = [{"source_id": sid, "label": label, "raw": raw, "offer_request": offer}
                 for sid, label, offer, raw in FIXTURES]
+    controls = '<span>QwenWork not connected</span> · <a href="/qwenwork/connect">Connect QwenWork</a>'
+    if api and api.connected():
+        rows = conn.execute("SELECT v.id,v.version_no,d.client FROM proposal_versions v JOIN deals d ON d.id=v.deal_id WHERE v.status IN ('draft','checked','blocked') AND v.version_no=(SELECT MAX(version_no) FROM proposal_versions WHERE deal_id=v.deal_id)").fetchall()
+        controls = '<span>QwenWork connected · founder approval still required</span>'
+        for row in rows:
+            job = conn.execute('SELECT status,error FROM qwenwork_sessions WHERE version_id=? OR result_version_id=? ORDER BY created_at DESC LIMIT 1', (row['id'], row['id'])).fetchone()
+            status = ('saved' if job['status'] == 'done' else job['status']) if job else 'ready'
+            controls += '<div>' + html.escape(row['client']) + ' · version ' + str(row['version_no']) + ' · ' + html.escape(status)
+            if job and job['error']:
+                controls += ' · ' + html.escape(job['error'])
+            controls += ' <button data-qwenwork-version="' + html.escape(row['id'], quote=True) + '">Draft with QwenWork</button></div>'
+        controls += '''<script>document.addEventListener('click',async e=>{const id=e.target.dataset.qwenworkVersion;if(!id)return;e.target.disabled=true;try{const r=await fetch('/api/qwenwork/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version_id:id})});const j=await r.json();if(!j.ok){alert(j.error);e.target.disabled=false;}else location.reload();}catch(_){e.target.disabled=false;}});</script>'''
     # The /submitted-briefs page still exists; it is just not linked from the dashboard.
-    return founder_ui.page(SAMPLE_BADGE, fixtures)
+    return founder_ui.page(SAMPLE_BADGE, fixtures).replace('<body>', '<body><nav style="padding:8px 24px">' + controls + '</nav>', 1)
 
 
 class StudioServer(ThreadingHTTPServer):
     """One media consumer per serving process. SQLite leases coordinate restarts."""
+    def server_close(self):
+        self.qwenwork_stop.set()
+        if self.qwenwork_worker:
+            self.qwenwork_worker.join(timeout=20)
+        super().server_close()
+
     def serve_forever(self, poll_interval=0.5):
         stop = threading.Event()
         def consume():
@@ -2802,7 +2846,8 @@ def load_owner_token(path):
 
 
 def make_server(db_path, port=0, public_origin=None, embed_origin=None,
-                qwenwork_secret_file=None, owner_token_file=None):
+                qwenwork_secret_file=None, owner_token_file=None,
+                qwenwork_client_id=None, qwenwork_redirect_uri=qwenwork_api.REDIRECT_URI):
     """Build a server on loopback with the founder owner token.
 
     Returns (server, owner_token). Without owner_token_file the token is fresh
@@ -2818,6 +2863,9 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
     conn = db.connect(db_path)
     try:
         core.load_seed(conn)
+        conn.executescript(qwenwork_api.SCHEMA)
+        import qwenwork_runtime
+        conn.executescript(qwenwork_runtime.SCHEMA)
         # Deals whose latest version was rejected before the deal status was
         # settled on reject leave the work queue (history is kept).
         # Historical reconciliation is explicit, never an implicit startup write.
@@ -2829,6 +2877,13 @@ def make_server(db_path, port=0, public_origin=None, embed_origin=None,
     server.embed_origins = embed_origins
     server.owner_token = (load_owner_token(owner_token_file) if owner_token_file
                           else secrets.token_urlsafe(24))
+    server.qwenwork_api = qwenwork_api.Client(qwenwork_client_id, qwenwork_redirect_uri)
+    server.qwenwork_stop = threading.Event()
+    server.qwenwork_worker = None
+    if qwenwork_client_id or (server.qwenwork_api.connected() and os.environ.get('BIDPILOT_QWENWORK_EVENT_RUNTIME') == '1'):
+        server.qwenwork_worker = threading.Thread(target=server.qwenwork_api.worker,
+            args=(db_path, server.qwenwork_stop), name='qwenwork-quotes', daemon=True)
+        server.qwenwork_worker.start()
     server.qwenwork_secret = qwenwork_callback.load_secret(qwenwork_secret_file)
     return server, server.owner_token
 
@@ -2846,10 +2901,14 @@ def main():
                         help="Private file holding the founder token so links survive restarts"
                              " (use 'none' for a fresh token each launch)")
     parser.add_argument("--qwenwork-secret-file", help="File holding the shared secret for POST /qwenwork/callback (or set BIDPILOT_QWENWORK_SECRET)")
+    parser.add_argument('--qwenwork-client-id', default=os.environ.get('BIDPILOT_QWENWORK_CLIENT_ID'))
+    parser.add_argument('--qwenwork-redirect-uri', default=qwenwork_api.REDIRECT_URI)
     args = parser.parse_args()
     token_file = None if str(args.owner_token_file).lower() == "none" else args.owner_token_file
     server, owner_token = make_server(args.db, args.port, args.public_origin, args.embed_origin,
-                                      args.qwenwork_secret_file, owner_token_file=token_file)
+                                      args.qwenwork_secret_file, owner_token_file=token_file,
+                                      qwenwork_client_id=args.qwenwork_client_id,
+                                      qwenwork_redirect_uri=args.qwenwork_redirect_uri)
     port = server.server_address[1]
     with server:
         print(f"BidPilot founder dashboard: http://127.0.0.1:{port}/?owner={owner_token}",

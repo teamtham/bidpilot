@@ -486,6 +486,9 @@ def submit_brief(c, inquiry, revision, sequence):
         receipt = chat.uid()
         c.execute('INSERT INTO studio_submissions VALUES (?,?,?,?,?,?)', (receipt,inquiry,revision,sequence,chat.packed(snapshot),time.time()))
         c.execute('UPDATE gemini_chats SET submitted_revision=? WHERE inquiry_id=?', (revision,inquiry))
+        c.execute('CREATE TABLE IF NOT EXISTS qwenwork_work (key TEXT PRIMARY KEY, kind TEXT NOT NULL, inquiry_id TEXT, payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'queued\', session_id TEXT, turn_id TEXT, created_at REAL NOT NULL, due REAL NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, response_json TEXT, error TEXT, finished_at REAL)')
+        c.execute('INSERT OR IGNORE INTO qwenwork_work(key,kind,inquiry_id,payload_json,created_at) VALUES (?,?,?,?,?)',
+                  ('brief:' + receipt, 'brief', inquiry, chat.packed({'receipt_id': receipt, 'inquiry_id': inquiry, 'expected_revision': revision, 'sequence': sequence, 'snapshot_json': chat.packed(snapshot)}), time.time()))
     return {'submitted': True, 'receipt_id': receipt, 'revision': revision, 'sequence': sequence}
 
 
