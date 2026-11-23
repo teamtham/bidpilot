@@ -283,6 +283,10 @@ def promo_spec(conn, request):
     return spec
 
 
+# Formats the promo rate card prices as product promos (see evaluate).
+PROMO_FAMILY = {'social_reel'}
+
+
 def evaluate(conn, request, data, history_override=None):
     """Legacy evaluation with opt-in historical commercial rate calibration.
 
@@ -302,6 +306,16 @@ def evaluate(conn, request, data, history_override=None):
     # commercial calibration. The engine remains responsible for compatibility.
     history = get_history(conn) if history_override is None else history_override
     data = copy.deepcopy(data)
+    request = copy.deepcopy(request)
+    if isinstance(request.get('offer'), dict) and request['offer'].get('format') in PROMO_FAMILY:
+        # A short-form social reel is priced like the studio's other promos: the
+        # engine only has a promo rate card, so reels and promos share one family
+        # for both the effort comparables and the historical fee benchmark.
+        request['offer']['format'] = 'product_promo'
+        for row in data['past_projects']:
+            if row.get('format') in PROMO_FAMILY:
+                row['format'] = 'product_promo'
+        history = [dict(row, format='product_promo') if row.get('format') in PROMO_FAMILY else row for row in history]
     existing = {row['project_id'] for row in data['past_projects']}
     additional = [row for row in history if row.get('project_id') not in existing
                   and row.get('actual_hours') is not None and row.get('end') and row['end'] < request.get('as_of', '')]

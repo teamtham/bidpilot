@@ -351,6 +351,25 @@ class EstimatingTests(unittest.TestCase):
                       'review_per_footage_minute': .05, 'original_edit': 4, 'cutdown': 1,
                       'captions': .5, 'review_round': .5, 'delivery': .25}})
 
+    def test_social_reel_is_priced_from_past_promos_not_sent_to_manual_estimate(self):
+        """A café social reel is a promo-family job: the engine has no separate
+        reel rate card, so it must price from the studio's past promos instead of
+        stopping at MANUAL_ESTIMATE_REQUIRED."""
+        request = self.detailed_request(self.spec)
+        request.pop('detailed_spec')
+        request.pop('pricing_mode', None)
+        promo = estimating.evaluate(self.conn, copy.deepcopy(request), core.seed_data())
+        request['offer']['format'] = 'social_reel'
+        reel = estimating.evaluate(self.conn, copy.deepcopy(request), core.seed_data())
+        self.assertNotIn('MANUAL_ESTIMATE_REQUIRED', reel['reason_codes'], reel)
+        self.assertTrue(reel['options'])
+        self.assertEqual(reel['estimate']['list_sgd'], promo['estimate']['list_sgd'])
+        self.assertEqual(request['offer']['format'], 'social_reel')  # caller's request untouched
+        # Interviews and custom animation still need the owner's own estimate.
+        request['offer']['interviewees'] = 2
+        self.assertEqual(estimating.evaluate(self.conn, copy.deepcopy(request), core.seed_data())['reason_codes'],
+                         ['MANUAL_ESTIMATE_REQUIRED'])
+
     def test_live_default_prices_from_past_jobs_with_or_without_a_template(self):
         """The default (QwenWork pipeline) path prices from similar past jobs. No
         template is required, and a registered one does not change the price."""
