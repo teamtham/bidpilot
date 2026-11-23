@@ -461,12 +461,11 @@ def approve_order(conn, order_id, reviewed_digest):
         evaluation = conn.execute('SELECT result_json FROM evaluations WHERE offer_id=?', (version['offer_id'],)).fetchone()
         result = json.loads(evaluation['result_json'])
         estimate = result.get('estimate') or {}
-        private = {k: estimate[k] for k in ('floor_sgd', 'capacity_hours') if k in estimate}
-        private['min_hourly_rate_sgd'] = 70
+        private = {k: estimate[k] for k in ('floor_sgd',) if k in estimate}
         for key, metric in (result.get('option_metrics') or {}).items():
             if metric and 'floor_sgd' in metric:
                 private['opt_' + key + '_floor'] = metric['floor_sgd']
-        check = core.run_outbound_check({'draft': terms['description'], 'approved_options': [], 'private_values': private, 'other_client_names': core.other_client_names(conn, deal['client'])})
+        check = core.floor_only(core.run_outbound_check({'draft': terms['description'], 'approved_options': [], 'private_values': private, 'other_client_names': []}))
         if not check['passed']:
             raise ValueError('outbound_blocked')
         conn.execute("UPDATE change_orders SET status='approved', approved_at=? WHERE id=?", (db.now(), order_id))

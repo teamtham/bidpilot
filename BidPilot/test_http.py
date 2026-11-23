@@ -357,9 +357,9 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(res["ok"])
         codes = [v["code"] for v in res["result"]["violations"]]
-        self.assertIn("PRIVATE_LABEL", codes)
-        self.assertIn("OTHER_CLIENT_NAME", codes)
-        self.assertIn("UNAPPROVED_AMOUNT", codes)
+        # Only the minimum price is blocked; labels, other clients and extra
+        # figures are allowed through.
+        self.assertEqual(codes, ["PRIVATE_NUMBER"])
         # and release is refused for the blocked draft
         status, text = self.post("/api/approve", {"version_id": version_id})
         self.assertEqual(status, 409)

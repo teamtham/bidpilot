@@ -1023,6 +1023,14 @@ def seed_errors(conn, version_row):
     return _mirror_errors(conn, data)
 
 
+def floor_only(outcome):
+    """Keep only the minimum-price finding; every other check result is allowed."""
+    if "violations" not in outcome:
+        return outcome
+    kept = [v for v in outcome["violations"] if v["code"] == "PRIVATE_NUMBER"]
+    return {**outcome, "violations": kept, "passed": not kept}
+
+
 def proposal_outbound_check(conn, version, option_rows):
     """Check the exact buyer copy, without rewriting a reviewed version."""
     import unicodedata
@@ -1035,8 +1043,9 @@ def proposal_outbound_check(conn, version, option_rows):
     est = result.get("estimate")
     privates = {}
     if est:
-        privates = {"floor_sgd": est["floor_sgd"], "min_hourly_rate_sgd": 70,
-                    "capacity_hours": est["capacity_hours"]}
+        # The only number that must never reach the buyer is the lowest price
+        # the studio would accept (the overall floor and each option's floor).
+        privates = {"floor_sgd": est["floor_sgd"]}
         for key, value in (result.get("option_metrics") or {}).items():
             if value:
                 privates[f"opt_{key}_floor"] = value["floor_sgd"]
@@ -1044,41 +1053,10 @@ def proposal_outbound_check(conn, version, option_rows):
         draft = unicodedata.normalize("NFKC", version["draft_body"] + "\n" + page_text(version))
     except (ValueError, TypeError, KeyError):
         return {"passed": False, "violations": [{"code": "INVALID_PAGE", "text": "Invalid composed page"}]}
-    numeric = re.search(r"\d|S\$|\bSGD\b|\$", draft, re.I) or engine.NUMBER_WORDS.search(draft)
-    # Multiple cards are alternatives, never a pool of interchangeable terms.
-    violations = []
-    if len(approved) > 1 and numeric:
-        violations.append({"code": "MULTI_OPTION_NUMERIC_PROSE", "text": "Use number-free supplemental prose; terms belong in option cards"})
-    # 'Three more videos' is an incremental phase count, not a new unit.
-    checked_text = re.sub(r"\b(\d+|" + "|".join(engine.WORDS) + r")\s+more(?:\s+videos?)?(?=\s+by\b)",
-                          r"\1 videos", draft, flags=re.I)
-    outcome = run_outbound_check({"draft": checked_text, "approved_options": approved,
-                                 "private_values": privates,
-                                 "other_client_names": other_client_names(conn, deal["client"])})
-    if len(approved) == 1 and numeric:
-        option = approved[0]
-        pairs = {(p["deliverables"], p["deadline"]) for p in option.get("phases", [])}
-        pairs.add((option["deliverables"], option["deadline"]))
-        dates = {d for _, d in pairs}
-        for match in engine.COUNT.finditer(checked_text):
-            if not match[2].lower().startswith("video"):
-                continue
-            raw = match[1].lower()
-            count = int(raw) if raw.isdigit() else engine.WORDS.index(raw)
-            tail = checked_text[match.end():]
-            delivery = re.match(r"\s+(?:by|on)\s+(" + engine.ISO.pattern + "|" + engine.DATE_TEXT.pattern + ")", tail, re.I)
-            date_text = delivery[1] if delivery else ""
-            allowed = []
-            for deadline in dates:
-                check = run_outbound_check({"draft": date_text or "missing", "approved_options": [{**option, "deadline": deadline, "phases": []}],
-                                            "private_values": {}, "other_client_names": []})
-                if date_text and check["passed"]:
-                    allowed.append(deadline)
-            if len(allowed) != 1 or (count, allowed[0]) not in pairs:
-                violations.append({"code": "OPTION_ASSOCIATION_INVALID", "text": match[0] + " " + date_text})
-    outcome["violations"].extend(violations)
-    outcome["passed"] = not outcome["violations"]
-    return outcome
+    # Everything else (hours, rates, other clients, extra figures, prose numbers)
+    # may go out: only the studio's minimum price is blocked.
+    return floor_only(run_outbound_check({"draft": draft, "approved_options": approved,
+                                          "private_values": privates, "other_client_names": []}))
 
 
 @_write_locked

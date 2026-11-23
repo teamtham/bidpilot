@@ -201,7 +201,7 @@ class OvernightRegressions(unittest.TestCase):
                                            (f["version_id"],)).fetchone())
 
     # -- 2: outbound gate covers other live deals' clients --------------------
-    def test_outbound_blocks_other_live_deal_client_name(self):
+    def test_outbound_allows_other_live_deal_client_name(self):
         self.flow("ov-name-juniper")
         harbor = json.loads(json.dumps(INQUIRY))
         harbor["offer"]["client"] = "Harbor Fitness"
@@ -219,9 +219,9 @@ class OvernightRegressions(unittest.TestCase):
         new_version = json.loads(text)["version_id"]
         _, text, _ = self.post("/api/check", {"version_id": new_version})
         res = json.loads(text)
-        self.assertFalse(res["ok"])
-        codes = [v["code"] for v in res["result"]["violations"]]
-        self.assertIn("OTHER_CLIENT_NAME", codes)
+        # Owner rule: only the minimum price is blocked, other client names pass.
+        self.assertTrue(res["ok"], res)
+        self.assertEqual([v["code"] for v in res["result"]["violations"]], [])
 
     # -- 3: confirmed client link stays live, rotates, refuses changes --------
     def test_confirmed_link_live_rotates_and_refuses_change(self):
