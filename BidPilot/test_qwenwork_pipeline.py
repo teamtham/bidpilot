@@ -433,6 +433,35 @@ class ComparableValidationTests(PipelineCase):
         api_steps = {s['step_key'] for s in steps if s['trigger'] == 'api'}
         self.assertTrue({'intake', 'scoping', 'engine'} <= api_steps)
 
+    def test_missing_direct_costs_default_to_zero(self):
+        inquiry, row = self.submitted_brief()
+        request = {k: v for k, v in INQUIRY.items() if k != 'pricing_mode'}
+        request['offer'] = {k: v for k, v in INQUIRY['offer'].items() if k != 'direct_costs_sgd'}
+        outcome = commercial.apply(self.c, row, {'offer_request': request, 'comparable_ids': []})
+        self.assertIn('compose', outcome)
+
+    def test_invalid_scope_is_repaired_with_feedback_not_blocked(self):
+        inquiry, row = self.submitted_brief()
+        bad = {k: v for k, v in INQUIRY.items() if k != 'pricing_mode'}
+        bad['offer'] = dict(INQUIRY['offer'], interviewees=None)
+        good = {k: v for k, v in INQUIRY.items() if k != 'pricing_mode'}
+        client = SessionClient([json.dumps({'offer_request': bad, 'comparable_ids': []}),
+                                json.dumps({'offer_request': good, 'comparable_ids': []})])
+
+        def tick():
+            with self.c:
+                self.c.execute('UPDATE qwenwork_work SET due=0')
+            runtime.tick(client, self.c)
+
+        for _ in range(8):
+            tick()
+        self.assertEqual(len(client.prompts), 1)
+        feedback = json.loads(client.prompts[0])
+        self.assertTrue(feedback['contract_error'].startswith('invalid_scope:'))
+        self.assertIn('interviewees', feedback['instruction'])
+        status = self.c.execute("SELECT status,error FROM qwenwork_work WHERE kind='brief'").fetchone()
+        self.assertEqual((status['status'], status['error']), ('done', None))
+
 
 class ComposePortfolioTests(PipelineCase):
     def setUp(self):

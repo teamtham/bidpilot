@@ -110,7 +110,7 @@ def prompt(c, row, client=None):
                 'No tools except Drive download of the portfolio file. The engine prices the brief from similar past jobs; do not set pricing_mode or historical_pricing. '
                 'offer_request must have exactly this shape: {"as_of":"<today YYYY-MM-DD>","offer":{"client":"<buyer business or person name>",'
                 '"format":"product_promo|social_reel|testimonial|event_recap|explainer","production_mode":"edit_only|one_shoot_day|multi_day",'
-                '"shoot_days":int,"locations":int,"interviewees":int,"scripting":"none|light|full","deliverables":int>=1,'
+                '"shoot_days":int,"locations":int,"interviewees":int (0 when none are mentioned; never null),"scripting":"none|light|full","deliverables":int>=1,'
                 '"editing_level":"simple|standard|heavy","graphics":"none|basic_titles|light_motion|custom_animation",'
                 '"revision_rounds":int,"caption_versions":int,"deadline":"YYYY-MM-DD","budget_sgd":number,"direct_costs_sgd":0},'
                 '"production_facts":{...}}. Use these engine field names exactly; never rename or flatten them. '
@@ -152,6 +152,9 @@ def apply(c, row, answer):
         # actuals); the agent cannot switch that off or pin another mode.
         request.pop('pricing_mode', None)
         request.pop('historical_pricing', None)
+        # Direct costs are never the agent's call: the documented default is 0.
+        if isinstance(request.get('offer'), dict) and request['offer'].get('direct_costs_sgd') is None:
+            request['offer']['direct_costs_sgd'] = 0
         # Pricing facts come from buyer-confirmed local evidence, never model invention.
         gone = {f.get('supersedes') for f in ctx['facts'] if f.get('supersedes')}
         confirmed = {f['subject']: f['value'] for f in ctx['facts']

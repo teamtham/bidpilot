@@ -350,6 +350,10 @@ def _repair_feedback(c, row, rejected_text, error):
                                         'a flat map subject -> plain value, no wrapper objects, no extra subjects. '
                                         'Set offer_request.client to the business or person name the buyer stated '
                                         'in buyer_messages; if none was stated, return the blocked form asking for it.')
+            if error.startswith('invalid_scope:'):
+                feedback['instruction'] += (' Every offer field is required and must be a real value, never null or missing: '
+                                            'interviewees is an integer (0 when the buyer mentions none) and '
+                                            'direct_costs_sgd is 0. Fields rejected: ' + error.split(':', 1)[1] + '.')
         return db.j(feedback)
     ctx = chat.context(c, {'inquiry_id': row['inquiry_id']})
     latest = next((t['body'] for t in reversed(ctx['turns']) if t['sender'] == 'buyer'), '')
@@ -475,7 +479,7 @@ def tick(client, c):
         except ValueError as exc:
             # Repair contract errors with the agent (bounded), never by
             # dropping or rewriting its facts server-side.
-            if str(exc) in REPAIRABLE and row['contract_retries'] < 2:
+            if (str(exc) in REPAIRABLE or str(exc).startswith('invalid_scope:')) and row['contract_retries'] < 2:
                 response = client.api('/v1/sessions/' + quote(row['session_id'], safe='') + '/prompt',
                                       'POST', {'text': _repair_feedback(c, row, text, str(exc))})
                 with c:
@@ -489,6 +493,6 @@ def tick(client, c):
             c.execute("UPDATE qwenwork_work SET status=?,response_json=?,finished_at=? WHERE key=?", ('blocked' if outcome and outcome.get('blocked') else 'done', db.j(answer), time.time(), row['key']))
     except (ValueError, KeyError, TypeError, OSError) as exc:
         c.rollback()
-        reason = str(exc) if str(exc) in ('sign_in_required', 'http_401', 'http_403', 'http_429', 'work_timeout', 'remote_turn_failed', 'reference_runtime_disabled', 'question_bank_mismatch', 'stale_revision', 'reference_duration_unavailable', 'invalid_reference_observation', 'unsafe_reference_cue', 'unverified_portfolio_selection', 'invalid_comparable_selection', 'ungrounded_fact', 'invalid_json', 'ungrounded_production_input', 'priced_revision_conflict') else 'api_or_contract_failure'
+        reason = str(exc) if (str(exc).startswith('invalid_scope:') or str(exc) in ('sign_in_required', 'http_401', 'http_403', 'http_429', 'work_timeout', 'remote_turn_failed', 'reference_runtime_disabled', 'question_bank_mismatch', 'stale_revision', 'reference_duration_unavailable', 'invalid_reference_observation', 'unsafe_reference_cue', 'unverified_portfolio_selection', 'invalid_comparable_selection', 'ungrounded_fact', 'invalid_json', 'ungrounded_production_input', 'priced_revision_conflict')) else 'api_or_contract_failure'
         with c:
             c.execute("UPDATE qwenwork_work SET status='blocked',error=?,finished_at=? WHERE key=?", (reason, time.time(), row['key']))
