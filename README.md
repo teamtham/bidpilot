@@ -2,7 +2,7 @@
 
 Built for **QwenWork × Hashmeta AI OPC**. The demo follows **Alex Tan Productions**, a one-person video production studio.
 
-> The AI sales desk for content creators who make videos for clients.
+> The AI sales desk for solo content creators and one-person video studios.
 
 When a client sends an inquiry, a solo content creator has three decisions to make. **Should I take this job? Can I deliver it on time? What should I charge?**
 
