@@ -2,9 +2,9 @@
 
 Built for **QwenWork × Hashmeta AI OPC**. The demo follows **Alex Tan Productions**, a one-person video production studio.
 
-> The sales desk for what happens after the lead comes in.
+> The AI sales desk for content creators who make videos for clients.
 
-Lead-generation tools help solo founders find prospects. Then an inquiry lands, and the founder has three decisions to make. **Should I take this job? Can I deliver it on time? What should I charge?**
+When a client sends an inquiry, a solo content creator has three decisions to make. **Should I take this job? Can I deliver it on time? What should I charge?**
 
 BidPilot turns a client brief into a decision the founder can act on. It compares the scope with past work, checks the studio calendar and minimum viable price, and works out what the founder could offer. If the request is too tight, BidPilot can price a smaller scope, a later deadline, or a phased delivery. The founder reviews the terms before the client receives a proposal.
 
@@ -27,7 +27,7 @@ BidPilot turns a client brief into a decision the founder can act on. It compare
 
 ## Why BidPilot
 
-A solo producer has to price the work while keeping track of shoots, edits, revisions, and deadlines already promised to other clients. Take on too much and an existing delivery can slip. Charge too little and a busy week can still lose money.
+A content creator taking on client video work has to price the project while keeping track of shoots, edits, revisions, and deadlines already promised to other clients. Take on too much and an existing delivery can slip. Charge too little and a busy week can still lose money.
 
 BidPilot puts those decisions in one place.
 
@@ -36,6 +36,8 @@ BidPilot puts those decisions in one place.
 | **Should I take it?** | A recommendation to accept, counter, clarify, or decline, with the reason. |
 | **Can I deliver it?** | Estimated production hours against available hours before the deadline, including blocks and confirmed bookings. |
 | **What should I charge?** | A proposed selling price, the studio’s private minimum, and feasible alternatives when budget or timing is tight. |
+
+BidPilot starts with paid video projects. The workflow could extend to other project-based solo businesses, such as photographers and web designers, with intake questions and pricing rules tailored to each service.
 
 ## What is built
 
